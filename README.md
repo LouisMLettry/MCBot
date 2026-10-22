@@ -119,16 +119,24 @@ with MinecraftClient() as mc:
     mc.select_block("oak_planks", slot=0)
     info = mc.place_block(10, -60, 6)    # info["placed"]: True / False (+ info["reason"])
     mc.place_block(11, -59, 6, face="north")   # clicked face: orients logs, slabs, stairs
+    mc.place_block(11, -59, 6, replace=True)   # breaks the block already there, then places
     mc.break_block(10, -60, 6)
 
     # Or let the Builder fly within reach and switch blocks on its own:
     Builder(mc).build([
         Phase("Low wall", standpoint=(0.5, -58, 0.5),
               blocks=[Placement((x, -60, 3), "cobblestone") for x in range(-2, 3)]),
+        Phase("Opening", standpoint=(0.5, -58, 0.5),
+              blocks=[Placement((0, -60, 3), "air")]),   # "air" = empty the cell
     ])
 ```
 - `place_block` doesn't need a neighbouring block: you can build in mid-air. Possible failure reasons:
-  `occupied`, `out_of_reach`, `no_block_selected`, `player_in_the_way`, `rejected`.
+  `already_there` (the cell already holds this block), `occupied` (it holds another block; `block` says which),
+  `out_of_reach`, `no_block_selected`, `player_in_the_way`, `rejected`.
+- With `replace=True`, a cell holding another block is emptied first (creative only); `replaced` names the block
+  that was broken.
+- The `Builder` leaves cells holding another block as they are and lists them in `builder.occupied`, unless
+  `Builder(mc, replace=True)`. A `Placement` with the block `"air"` empties the cell.
 - Block identifiers are Minecraft's, without the `minecraft:` prefix (`stone`, `oak_log`, `glass_pane`,
   `red_wool`…); the prefix is accepted but never appears in responses (see [guidelines.md](guidelines.md)).
 - The player looks at each block it places (can be disabled with `look=False`).
@@ -183,7 +191,7 @@ Big-endian integers, one request → one response:
 | `game_mode` | `mode` (`survival`, `creative`, `adventure`, `spectator`) | Changes the game mode (singleplayer world); responds once applied. |
 | `fly` | `enabled` | Starts/stops flying (creative). Flying is turned back on automatically if it stops in mid-air. |
 | `select_block` | `block`, `slot` (0–8, optional) | Puts the block in hand (created in creative, looked up in the hotbar otherwise). |
-| `place_block` | `x`, `y`, `z`, `face` (default `up`), `look` (default `true`) | Places the held block → `placed`, `reason`, `message`, `block`. |
+| `place_block` | `x`, `y`, `z`, `face` (default `up`), `look` (default `true`), `replace` (default `false`) | Places the held block → `placed`, `reason`, `message`, `block`, `replaced`. |
 | `break_block` | `x`, `y`, `z`, `look` | Breaks the block (creative) → `broken`, `reason`, `block`. |
 | `blocks` | `min` and `max` [x, y, z], **or** `chunk` [cx, cz], **or** `radius`; `states` (default `false`) | Blocks of the box → `origin` [x, y, z], `shape` [sx, sy, sz], `palette`, and the indices in binary. |
 

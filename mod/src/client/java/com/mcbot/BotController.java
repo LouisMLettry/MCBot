@@ -170,7 +170,8 @@ public class BotController {
 					BuildActions.requirePlayer(client);
 					prepareForControl(client);
 					Direction face = BuildActions.parseFace(json.has("face") ? getString(json, "face") : "up");
-					JsonObject result = BuildActions.placeBlock(client, getBlockPos(json), face, getBoolean(json, "look", true));
+					JsonObject result = BuildActions.placeBlock(client, getBlockPos(json), face, getBoolean(json, "look", true),
+							getBoolean(json, "replace", false));
 					request.future().complete(buildResponse(client, result));
 				}
 				case "break_block" -> {

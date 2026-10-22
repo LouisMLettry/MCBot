@@ -119,7 +119,7 @@ unlimited blocks, flying, instant breaking.
 | `set_build_mode(enabled=True)` | Shortcut: creative if `True`, survival if `False`. |
 | `set_flying(enabled=True)` | Starts / stops flying (creative only). When flying, `jump` goes up and `sneak` goes down. Started on the ground, the player hops up about one block. While enabled by the script, the mod turns flying back on if the game turns it off. |
 | `select_block(block, slot=None)` | Puts a block in hand. In creative, the block is created in hotbar `slot` (0–8, default: current slot). In survival, it must already be in the hotbar. Returns `info` with `slot`, `item`, `is_block`. |
-| `place_block(x, y, z, face="up", look=True)` | Places the held block in cell `(x, y, z)`. See below. |
+| `place_block(x, y, z, face="up", look=True, replace=False)` | Places the held block in cell `(x, y, z)`. See below. |
 | `break_block(x, y, z, look=True)` | Breaks the block instantly (creative only). Returns `info` with `broken` (bool), `block`, and on failure `reason` (`empty`, `out_of_reach`, `rejected`) and `message`. |
 | `fly_to(x, y, z, tolerance=0.75, vertical_tolerance=0.35, max_steps=600, face_target=True)` | Flies until the feet are at `(x, y, z)`, then stops and releases the keys. See below. |
 
@@ -130,8 +130,15 @@ unlimited blocks, flying, instant breaking.
 - `face` is the side being "clicked". It orients some blocks: `"up"` gives a vertical log or a bottom slab,
   `"down"` a top slab, `"north"`/`"south"`/`"east"`/`"west"` a lying log.
 - With `look=True` the player first looks at the cell, which also orients doors, stairs and torches.
-- Returns `info` with `placed` (bool), `target`, `block`, and on failure `reason` and `message`. Possible reasons:
-  `occupied`, `out_of_reach`, `no_block_selected`, `player_in_the_way`, `rejected`.
+- **If the cell already holds a block** (other than a replaceable one):
+  - the same block as the one held → nothing happens, `reason` is `already_there`. Only the block type is
+    compared, not its state: a log lying the wrong way counts as already there;
+  - another block → `reason` is `occupied`, unless `replace=True`: then that block is broken first (creative only)
+    and `replaced` gives its name.
+- Returns `info` with `placed` (bool), `target`, `block` (the block now in the cell, or the one found there for
+  `already_there` / `occupied`), `replaced` when a block was broken, and on failure `reason` and `message`.
+  Possible reasons: `already_there`, `occupied`, `out_of_reach`, `no_block_selected`, `player_in_the_way`,
+  `rejected`.
 
 **`fly_to`:** enables flying if needed (so creative is required). At each step it predicts where the player would
 stop if all keys were released (flight keeps momentum) and presses the keys that bring that point onto the target;
@@ -167,7 +174,7 @@ Raises `McBotError` if a chunk isn't loaded, the box is too big, or it lies enti
 ## Builder
 
 ```python
-Builder(mc, delay_ticks=2, log=print)
+Builder(mc, delay_ticks=2, replace=False, log=print)
 ```
 
 Builds a structure described as a list of **phases**. For each phase the builder flies to the phase's standpoint,
@@ -175,8 +182,17 @@ then places its blocks one by one, switching the block in hand when needed.
 
 ```python
 Placement(pos, block, face="up")          # one block: (x, y, z), block name, clicked face
+Placement(pos, "air")                     # empty this cell (the builder breaks whatever is there)
 Phase(name, standpoint, blocks=[...])     # blocks all reachable from standpoint (a feet position)
 ```
+
+A plan describes the **result** you want. For each cell, the builder compares it with what is there:
+
+| The cell holds… | Planned block | Planned `"air"` |
+|---|---|---|
+| nothing (or grass, water…) | placed → `placed` | nothing to do → `already_there` |
+| the planned block | nothing to do → `already_there` | broken → `removed` |
+| another block | left as it is → `occupied`; with `replace=True`: broken, then placed → `placed` and `replaced` | broken → `removed` |
 
 - **Before building:** switch to creative (`mc.set_build_mode(True)`). The builder flies with `fly_to`, which
   needs creative.
@@ -189,13 +205,17 @@ Phase(name, standpoint, blocks=[...])     # blocks all reachable from standpoint
 | Member | Description |
 |---|---|
 | `build(phases)` | Builds all phases in order. |
-| `place(placement)` | Places one block (from where the player is now). Returns `True` if placed. |
+| `place(placement)` | Places one block, or empties the cell for `"air"` (from where the player is now). Returns `True` if the cell changed. |
 | `select(block)` | Puts a block in hand, unless it is already held. Each new block name gets the next hotbar slot (cycling over the 9 slots). |
 | `delay_ticks` | Ticks waited after each block (0 = as fast as possible). |
+| `replace` | Whether cells holding another block are broken and refilled. |
 | `placed` | Number of blocks placed. |
-| `already_there` | Number of cells that were already occupied (counted separately, not as failures). |
-| `failures` | List of `(placement, message)` for the blocks that couldn't be placed. |
-| `summary()` | Text such as `"198 blocks placed, 2 cells already occupied"`. |
+| `replaced` | Among them, how many replaced another block. |
+| `removed` | Number of blocks broken for `"air"` placements. |
+| `already_there` | Cells that were already as planned. |
+| `occupied` | List of `(placement, block found)` for cells left holding another block (only without `replace`). |
+| `failures` | List of `(placement, message)` for the cells that couldn't be changed (out of reach, refused…). |
+| `summary()` | Text such as `"198 blocks placed (3 replacing another block), 4 removed, 2 cells already as planned"`. |
 
 ```python
 mc.set_build_mode(True)
@@ -205,8 +225,12 @@ builder.build([
           blocks=[Placement((x, -60, 3), "cobblestone") for x in range(-2, 3)]),
     Phase("Logs", standpoint=(0.5, -58, 6.5),
           blocks=[Placement((x, -60, 8), "oak_log", face="east") for x in range(-2, 3)]),
+    Phase("Gap", standpoint=(0.5, -58, 0.5),
+          blocks=[Placement((0, -60, 3), "air")]),
 ])
 print(builder.summary())
+for placement, found in builder.occupied:
+    print(f"{placement.pos}: wanted {placement.block}, found {found}")
 ```
 
 `scripts/build_house.py` is a complete example (a 7 × 7 house, about 200 blocks in 6 phases).

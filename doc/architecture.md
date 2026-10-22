@@ -50,7 +50,7 @@ Python never touches the game directly: everything goes through the mod, one req
 | `McBotClient` | Fabric entry point. Reads the port (`-Dmcbot.port`, default 5555), hooks `BotController` on every client tick, starts `BotServer`. |
 | `BotServer` | Background thread. Listens on `127.0.0.1` only, one client at a time. Reads a request, hands it to the controller, waits for the answer (120 s max), sends it back. On disconnect, asks the controller to release all keys. |
 | `BotController` | Runs on the **game thread**, once per tick. Takes the next request from a queue and executes it. A `step` holds keys for N ticks (20 ticks = 1 s) and spreads the camera rotation over them. Also prevents the game from pausing while a script is connected, and keeps the player flying if the script asked for it. |
-| `BuildActions` | Building helpers: switch game mode through the singleplayer server (works without cheats), fly, put a block in hand, place a block (no neighbour needed — you can build in the air), break a block. |
+| `BuildActions` | Building helpers: switch game mode through the singleplayer server (works without cheats), fly, put a block in hand, place a block (no neighbour needed — you can build in the air; optionally replacing the block already there), break a block. |
 | `FrameCapture` | Takes a screenshot of what the game rendered and shrinks it to the requested size (e.g. 160×90), as raw RGB bytes. |
 | `BlockScan` | Reads the blocks of a box (two corners, a whole chunk, or a cube around the player) from the game client's copy of the world. Only loaded chunks can be read. Returns a palette of block names plus one number per block. Limited to 1,048,576 blocks per request. |
 
@@ -65,7 +65,7 @@ Full reference with parameters and examples: [python-api.md](python-api.md).
 |---|---|
 | `MinecraftClient` | Connection + one method per command (`ping`, `config`, `step`, `set_game_mode`, `set_flying`, `select_block`, `place_block`, `break_block`) and shortcuts (`forward`, `turn`, `look`, `jump`, `stop`). Images come back as numpy arrays `(height, width, 3)`. |
 | `fly_to` | Flies to a target position. It predicts where the player would stop if all keys were released (creative flight keeps momentum) and presses keys to move that stopping point onto the target. |
-| `Builder`, `Phase`, `Placement` | A build is a list of phases; each phase has a spot to fly to and the blocks reachable from there. The builder flies, picks the right block and places them one by one. |
+| `Builder`, `Phase`, `Placement` | A build is a list of phases; each phase has a spot to fly to and the blocks reachable from there. The builder flies, picks the right block and places them one by one. A `"air"` placement empties a cell; with `replace=True`, cells holding another block are broken and refilled. |
 | `get_blocks`, `get_chunk`, `get_blocks_around` → `BlockVolume` | Read the world. A `BlockVolume` holds `ids` (numpy `uint16`, indexed `[x, y, z]` from `origin`) and `palette` (the block name of each id), with helpers `block_at(x, y, z)` and `mask("water")`. |
 | `connect_with_retry`, `wait_for_world` | Let a script be started before Minecraft or before entering a world. |
 
@@ -100,8 +100,11 @@ A response carries at most one binary block, so a single request can't return an
 
 `python/tests/` checks the Python side without Minecraft:
 
-- `test_client.py` starts a fake mod speaking the same protocol, including a simple simulation of flight physics
-  to check that `fly_to` reaches its target, and a small block volume to check how blocks are decoded;
+- `conftest.py` holds the fake mod shared by the tests: it speaks the same protocol, simulates flight physics,
+  remembers the blocks placed and broken (with the same `already_there` / `occupied` / `replace` rules as the mod),
+  and returns a small block volume;
+- `test_client.py` checks the client: requests sent, images and blocks decoded, `fly_to` reaching its target;
+- `test_builder.py` checks how the builder handles each cell (placed, already there, occupied, replaced, removed);
 - `test_house.py` checks the house plan: no duplicate blocks, every block within reach of its standpoint, the player
   never standing inside a block.
 

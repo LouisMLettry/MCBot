@@ -105,3 +105,19 @@ The project was started by Florian Desmons on Windows.
   the demo frames are `01_start.png`, `02_forward_2s.png`… and the house phases are `Floor`,
   `Walls, door and torch`, `Roof, level n`.
 - The README also gained the macOS commands next to the Windows ones.
+
+## 2026-10-22 — Removing and replacing blocks
+
+- `place_block` gets a `replace` option: if the cell holds another block, the mod breaks it and places the new
+  one in the same tick (creative only); `replaced` names the broken block. Done in the mod rather than in Python
+  so nothing can change between the break and the placement.
+- New result `already_there` when the cell already holds the held block (only the block type is compared, not
+  its state). `occupied` now also says which block is there (`block`).
+- Builder:
+  - `Placement(pos, "air")` empties a cell (calls `break_block`), so a plan describes the final result,
+    holes included;
+  - `Builder(mc, replace=True)` replaces cells holding another block;
+  - counters split: `already_there` (already as planned) vs. `occupied` (list of cells left holding another
+    block — before, both were counted together, so wrong blocks went unnoticed), plus `replaced` and `removed`.
+- Tests: the fake mod moved to `tests/conftest.py` and now remembers placed blocks; new `tests/test_builder.py`.
+- Checked: the mod compiles, 27 Python tests pass. **Not yet tested in the game.**

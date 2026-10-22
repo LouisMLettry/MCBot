@@ -157,21 +157,26 @@ class MinecraftClient:
             request["slot"] = slot
         return self._request(request)[1]
 
-    def place_block(self, x: float, y: float, z: float, face: str = "up", look: bool = True) -> dict[str, Any]:
+    def place_block(self, x: float, y: float, z: float, face: str = "up", look: bool = True,
+                    replace: bool = False) -> dict[str, Any]:
         """Places the held block in cell (x, y, z), which must be within reach (5 blocks in creative).
 
         No neighbouring block needed: you can build in mid-air. ``face`` (the clicked face) orients some blocks:
         ``"up"`` = vertical log / bottom slab, ``"down"`` = top slab, ``"north"``… = lying log.
-        Returns ``info`` with ``placed`` (bool) and, on failure, ``reason`` (occupied, out_of_reach,
-        no_block_selected, player_in_the_way, rejected) and ``message``.
+        If the cell holds another block, it is broken first with ``replace=True`` (build mode); otherwise the
+        placement fails with ``occupied``.
+        Returns ``info`` with ``placed`` (bool), ``replaced`` (the block that was broken, if any) and, on failure,
+        ``reason`` (already_there, occupied, out_of_reach, no_block_selected, player_in_the_way, rejected),
+        ``message``, and ``block`` (what is in the cell) for already_there and occupied.
         """
         if face not in FACES:
             raise ValueError(f"Unknown face: {face!r} (possible: {FACES})")
         return self._request({"type": "place_block", "x": math.floor(x), "y": math.floor(y), "z": math.floor(z),
-                              "face": face, "look": look})[1]
+                              "face": face, "look": look, "replace": replace})[1]
 
     def break_block(self, x: float, y: float, z: float, look: bool = True) -> dict[str, Any]:
-        """Instantly breaks block (x, y, z) (build mode). Returns ``info`` with ``broken`` (bool)."""
+        """Instantly breaks block (x, y, z) (build mode). Returns ``info`` with ``broken`` (bool), ``block`` and, on
+        failure, ``reason`` (empty, out_of_reach, rejected) and ``message``."""
         return self._request({"type": "break_block", "x": math.floor(x), "y": math.floor(y), "z": math.floor(z),
                               "look": look})[1]
 

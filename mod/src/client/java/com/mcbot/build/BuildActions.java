@@ -145,18 +145,31 @@ public final class BuildActions {
 	 * Places the block held in hand at position {@code pos} (which must be empty or replaceable, like grass).
 	 * The target cell itself is "clicked": no neighbouring block is needed, so blocks can be placed in mid-air.
 	 * {@code face} is the clicked face; it orients some blocks (logs, slabs, stairs).
+	 *
+	 * <p>If the cell already holds the held block, nothing is done ({@code already_there}). If it holds another
+	 * block, that block is broken first when {@code replace} is true (creative only); otherwise the placement fails
+	 * ({@code occupied}).
 	 */
-	public static JsonObject placeBlock(Minecraft client, BlockPos pos, Direction face, boolean look) {
+	public static JsonObject placeBlock(Minecraft client, BlockPos pos, Direction face, boolean look, boolean replace) {
 		LocalPlayer player = requirePlayer(client);
 		ClientLevel level = client.level;
 		JsonObject result = targetResult(pos, "placed");
 
+		if (!(player.getMainHandItem().getItem() instanceof BlockItem held)) {
+			return failure(result, "no_block_selected", "No block in hand: call select_block first");
+		}
 		BlockState existing = level.getBlockState(pos);
-		if (!existing.canBeReplaced()) {
+		boolean occupied = !existing.canBeReplaced();
+		if (occupied && existing.is(held.getBlock())) {
+			result.addProperty("block", blockId(existing));
+			return failure(result, "already_there", "This block is already here");
+		}
+		if (occupied && !replace) {
+			result.addProperty("block", blockId(existing));
 			return failure(result, "occupied", "Position already occupied by " + blockId(existing));
 		}
-		if (!(player.getMainHandItem().getItem() instanceof BlockItem)) {
-			return failure(result, "no_block_selected", "No block in hand: call select_block first");
+		if (occupied && !client.gameMode.getPlayerMode().isCreative()) {
+			throw new BotException("Replacing blocks is only supported in build mode (creative)");
 		}
 		JsonObject reachFailure = checkReach(player, pos, result);
 		if (reachFailure != null) {
@@ -172,6 +185,15 @@ public final class BuildActions {
 			// The server orients some blocks (doors, stairs, torches…) from where the player looks: send it the
 			// new rotation right away, otherwise it would use the one from the previous tick.
 			player.connection.send(new ServerboundMovePlayerPacket.Rot(player.getYRot(), player.getXRot(), player.onGround()));
+		}
+		if (occupied) {
+			// Replacing: break the old block first. The server receives the break and the placement in this order.
+			client.gameMode.startDestroyBlock(pos, Direction.UP);
+			if (!level.getBlockState(pos).canBeReplaced()) {
+				result.addProperty("block", blockId(existing));
+				return failure(result, "rejected", "The game refused to break " + blockId(existing));
+			}
+			result.addProperty("replaced", blockId(existing));
 		}
 		InteractionResult interaction = client.gameMode.useItemOn(player, InteractionHand.MAIN_HAND,
 				new BlockHitResult(hitLocation, face, pos, false));
