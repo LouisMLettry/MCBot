@@ -4,6 +4,7 @@ Piloter son personnage Minecraft depuis Python, avec les images du jeu, en vue d
 
 - `mod/` : mod **Fabric pour Minecraft 1.21.1** (côté client). Il ouvre un serveur TCP local (`127.0.0.1:5555`) qui reçoit des actions (avancer, tourner, sauter…) et renvoie l'état du joueur et, si demandé, une image du jeu.
 - `python/` : client Python (`mcbot`) et script de démonstration `demo_movements.py`.
+- `doc/` : documentation du système (architecture, journal, feuille de route).
 
 ## 1. Prérequis
 
@@ -11,8 +12,12 @@ Piloter son personnage Minecraft depuis Python, avec les images du jeu, en vue d
   ```powershell
   winget install EclipseAdoptium.Temurin.25.JDK
   ```
-  Rouvrir le terminal ensuite (`java -version` doit afficher 25).
-- **Python 3.10+**.
+  Rouvrir le terminal ensuite (`java -version` doit afficher 25 ou plus ; JDK 26 fonctionne aussi).
+- **Python 3.10+** et **[uv](https://docs.astral.sh/uv/)** pour gérer l'environnement Python
+  (les dépendances sont déclarées dans `python/pyproject.toml`) :
+  ```powershell
+  winget install astral-sh.uv
+  ```
 
 ## 2. Mettre le mod dans Minecraft
 
@@ -36,9 +41,18 @@ Le premier lancement télécharge Minecraft et les dépendances (quelques minute
    → le fichier du mod est `mod\build\libs\mcbot-0.2.1.jar` (pas celui en `-sources`).
    Lors d'une mise à jour, supprimer l'ancien `mcbot-*.jar` du dossier `mods` avant de copier le nouveau.
 2. Installer **Fabric Loader** pour 1.21.1 avec l'installeur officiel : <https://fabricmc.net/use/installer/> (onglet *Client*, version 1.21.1).
+   Attention à ne pas choisir **1.21.11** : le mod exige exactement 1.21.1 et Fabric refuse de le charger sinon.
 3. Télécharger **Fabric API** pour 1.21.1 : <https://modrinth.com/mod/fabric-api> (version `…+1.21.1`).
 4. Copier `mcbot-0.2.1.jar` **et** le jar de Fabric API dans `%APPDATA%\.minecraft\mods` (créer le dossier s'il n'existe pas).
 5. Dans le launcher, choisir le profil **fabric-loader-1.21.1** et jouer.
+
+Astuce (macOS / Linux) : au lieu de copier le jar à chaque compilation, mettre dans `mods` un lien symbolique
+vers le jar compilé ; il suffit ensuite de relancer Minecraft après un `./gradlew build` :
+```bash
+ln -s "$PWD/build/libs/mcbot-0.2.1.jar" ~/Library/Application\ Support/minecraft/mods/mcbot-0.2.1.jar   # depuis mod/
+```
+Lier le jar, pas tout le dossier `build/libs` (Fabric chargerait aussi le jar `-sources`). Le lien est à refaire
+si la version du mod change, car elle fait partie du nom du fichier.
 
 ## 3. Faire bouger le personnage depuis Python
 
@@ -46,11 +60,11 @@ Le premier lancement télécharge Minecraft et les dépendances (quelques minute
 2. Dans un autre terminal :
    ```powershell
    cd python
-   python -m venv .venv
-   .venv\Scripts\activate
-   pip install -r requirements.txt
-   python demo_movements.py
+   uv sync
+   uv run python demo_movements.py
    ```
+   `uv sync` crée l'environnement `.venv` et installe les dépendances (à refaire après une mise à jour de
+   `pyproject.toml`) ; `uv run` lance la commande dans cet environnement.
    Le personnage avance, tourne, saute, regarde en haut et en bas, marche en rond, sprinte…
    Des captures sont enregistrées dans `python/frames/`.
 
@@ -83,8 +97,7 @@ Le mod sait aussi :
 Se tenir **au sol** dans un monde solo (Superflat idéal), face à un espace libre, puis :
 ```powershell
 cd python
-.venv\Scripts\activate
-python build_house.py
+uv run python build_house.py
 ```
 Le personnage passe en créatif, s'envole, pose le sol, fait le tour des murs (fenêtres, porte, torche), construit un toit
 en pyramide, puis recule pour photographier la maison (`python/frames/maison.png`). Environ 200 blocs, ~1 minute.
@@ -137,6 +150,6 @@ Le port peut être changé en lançant le jeu avec `-Dmcbot.port=XXXX`.
 ## Tests
 ```powershell
 cd python
-.venv\Scripts\python -m pytest tests
+uv run pytest tests
 ```
 Ils vérifient le client Python avec un faux serveur (dont une simulation de la physique du vol pour `fly_to`) et le plan de la maison (tout est à portée, le joueur ne gêne jamais), sans lancer Minecraft.
