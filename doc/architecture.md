@@ -24,15 +24,18 @@ Python never touches the game directly: everything goes through the mod, one req
 │           ├── BotException.java    "Expected" error returned to Python
 │           ├── net/                 BotServer (TCP), BotResponse
 │           ├── build/               BuildActions (game mode, flying, blocks)
-│           └── capture/             FrameCapture (screenshots)
+│           ├── capture/             FrameCapture (screenshots)
+│           └── world/               BlockScan (reads the blocks of a box of the world)
 └── python/
     ├── pyproject.toml     Python version and dependencies (managed with uv)
     ├── uv.lock            Exact versions installed by `uv sync`
     ├── mcbot/             The client library
     │   ├── client.py      MinecraftClient: protocol, movement, building, fly_to
-    │   └── builder.py     Builder / Phase / Placement: builds a list of blocks
+    │   ├── builder.py     Builder / Phase / Placement: builds a list of blocks
+    │   └── world.py       BlockVolume: blocks read from the world
     ├── demo_movements.py  Demo: walk, turn, jump, sprint… and save frames
     ├── build_house.py     Demo: build a small house, then take a picture
+    ├── scan_blocks.py     Demo: top-down map of the blocks around the player
     └── tests/             Tests with a fake mod (no Minecraft needed)
 ```
 
@@ -46,6 +49,7 @@ Python never touches the game directly: everything goes through the mod, one req
 | `BotController` | Runs on the **game thread**, once per tick. Takes the next request from a queue and executes it. A `step` holds keys for N ticks (20 ticks = 1 s) and spreads the camera rotation over them. Also prevents the game from pausing while a script is connected, and keeps the player flying if the script asked for it. |
 | `BuildActions` | Building helpers: switch game mode through the singleplayer server (works without cheats), fly, put a block in hand, place a block (no neighbour needed — you can build in the air), break a block. |
 | `FrameCapture` | Takes a screenshot of what the game rendered and shrinks it to the requested size (e.g. 160×90), as raw RGB bytes. |
+| `BlockScan` | Reads the blocks of a box (two corners, a whole chunk, or a cube around the player) from the game client's copy of the world. Only loaded chunks can be read. Returns a palette of block names plus one number per block. Limited to 1,048,576 blocks per request. |
 
 Why the queue and the game thread: Minecraft's state may only be changed from its own thread. The TCP thread
 therefore never touches the game; it only puts requests in the queue and waits.
@@ -57,6 +61,7 @@ therefore never touches the game; it only puts requests in the queue and waits.
 | `MinecraftClient` | Connection + one method per command (`ping`, `config`, `step`, `set_game_mode`, `set_flying`, `select_block`, `place_block`, `break_block`) and shortcuts (`forward`, `turn`, `look`, `jump`, `stop`). Images come back as numpy arrays `(height, width, 3)`. |
 | `fly_to` | Flies to a target position. It predicts where the player would stop if all keys were released (creative flight keeps momentum) and presses keys to move that stopping point onto the target. |
 | `Builder`, `Phase`, `Placement` | A build is a list of phases; each phase has a spot to fly to and the blocks reachable from there. The builder flies, picks the right block and places them one by one. |
+| `get_blocks`, `get_chunk`, `get_blocks_around` → `BlockVolume` | Read the world. A `BlockVolume` holds `ids` (numpy `uint16`, indexed `[x, y, z]` from `origin`) and `palette` (the block name of each id), with helpers `block_at(x, y, z)` and `mask("water")`. |
 | `connect_with_retry`, `wait_for_world` | Let a script be started before Minecraft or before entering a world. |
 
 ## The protocol
@@ -64,11 +69,15 @@ therefore never touches the game; it only puts requests in the queue and waits.
 Big-endian integers, over TCP:
 
 - **request:** `uint32 length` + JSON (UTF-8), always with a `type` field;
-- **response:** `uint32 length` + JSON, then `uint32 length` + raw RGB pixels (length 0 when there is no image).
+- **response:** `uint32 length` + JSON, then `uint32 length` + binary data (length 0 when there is none).
+  The JSON field `payload` says what the binary data is: `frame` (raw RGB pixels) or `blocks` (one `uint16`
+  palette index per block, ordered by x, then y, then z).
 
 Every response contains the player's state (position, motion, yaw/pitch, health, game mode, held item…) plus the
 result of the command. Errors come back as `{"ok": false, "error": "..."}` and are raised in Python as `McBotError`.
-The full list of commands and fields is in the [main README](../README.md#5-protocole-pour-info).
+The full list of commands and fields is in the [main README](../README.md#6-protocole-pour-info).
+
+A response carries at most one binary block, so a single request can't return an image *and* blocks.
 
 ## Versions
 
@@ -87,7 +96,7 @@ The full list of commands and fields is in the [main README](../README.md#5-prot
 `python/tests/` checks the Python side without Minecraft:
 
 - `test_client.py` starts a fake mod speaking the same protocol, including a simple simulation of flight physics
-  to check that `fly_to` reaches its target;
+  to check that `fly_to` reaches its target, and a small block volume to check how blocks are decoded;
 - `test_house.py` checks the house plan: no duplicate blocks, every block within reach of its standpoint, the player
   never standing inside a block.
 

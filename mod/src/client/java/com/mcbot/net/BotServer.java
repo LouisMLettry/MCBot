@@ -24,7 +24,8 @@ import java.util.concurrent.TimeUnit;
  * <p>Protocole, entiers en big-endian :
  * <ul>
  *   <li>requête : {@code uint32 longueur} + JSON UTF-8 ;</li>
- *   <li>réponse : {@code uint32 longueur} + JSON UTF-8, puis {@code uint32 longueur} + image RGB brute (0 si aucune).</li>
+ *   <li>réponse : {@code uint32 longueur} + JSON UTF-8, puis {@code uint32 longueur} + données binaires (0 si aucune) :
+ *   image RGB brute ou blocs, selon le champ {@code payload} du JSON.</li>
  * </ul>
  * Un seul client à la fois ; les requêtes sont traitées dans l'ordre, sur le thread du jeu.
  */
@@ -99,11 +100,11 @@ public class BotServer implements Runnable {
 
 	private static void write(DataOutputStream out, BotResponse response) throws IOException {
 		byte[] json = response.info().toString().getBytes(StandardCharsets.UTF_8);
-		byte[] frame = response.frame() == null ? new byte[0] : response.frame();
+		byte[] data = response.data() == null ? new byte[0] : response.data();
 		out.writeInt(json.length);
 		out.write(json);
-		out.writeInt(frame.length);
-		out.write(frame);
+		out.writeInt(data.length);
+		out.write(data);
 		out.flush();
 	}
 }

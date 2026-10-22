@@ -53,3 +53,21 @@ The project was started by Florian Desmons on Windows.
 - The copy in `mods` was then replaced by a **symbolic link** to `mod/build/libs/mcbot-0.2.1.jar`: after
   `./gradlew build`, restarting Minecraft is enough to load the new mod. Only the jar is linked, not the folder,
   so Fabric doesn't also load the `-sources` jar.
+
+## 2026-10-22 — Reading the world's blocks
+
+- New mod command `blocks` and Python methods `get_blocks`, `get_chunk`, `get_blocks_around`, returning a
+  `BlockVolume`. New demo `scan_blocks.py` (top-down map around the player).
+- Decisions:
+  - Blocks are read from the **game client's copy** of the world (no cheats, would also work in multiplayer), not
+    from the singleplayer server. Consequence: only loaded chunks are available.
+  - **One command for any box**; a chunk and a cube around the player are just particular boxes. The cube is
+    computed by the mod, so it is centred on the player's position at the same tick.
+  - **Palette + one `uint16` per block** in the binary part of the response (~200 KB per chunk, numpy-ready),
+    instead of a JSON list of names (~2 MB) or Minecraft's internal ids (which change between versions).
+  - Indexing `[x, y, z]` in Python, the most natural to read (Minecraft itself stores `[y, z, x]`).
+  - Option `states=True` for full block states (orientation, open/closed…).
+  - Heightmap left out for now; can be added later.
+- Protocol: the binary part of a response is no longer always an image; the JSON field `payload` (`frame` or
+  `blocks`) says what it is. In Java, `BotResponse.frame` was renamed `data`.
+- Checked: the mod compiles, Python tests pass (22), and `scan_blocks.py` works in the game.

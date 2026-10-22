@@ -11,6 +11,8 @@ from typing import Any, Callable
 
 import numpy as np
 
+from .world import BlockVolume
+
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 5555
 TICKS_PER_SECOND = 20
@@ -213,9 +215,39 @@ class MinecraftClient:
         self.stop()
         raise McBotError(f"fly_to : cible ({x:.1f}, {y:.1f}, {z:.1f}) non atteinte, position {info['pos']}")
 
+    # --- Monde ---------------------------------------------------------------------------------
+
+    def get_blocks(self, corner1: tuple[float, float, float], corner2: tuple[float, float, float],
+                   states: bool = False) -> BlockVolume:
+        """Blocs de la boîte entre deux coins (inclus), en coordonnées monde.
+
+        La boîte est limitée à la hauteur du monde et à 1 048 576 blocs (3 × 3 chunks entiers) ; ses chunks doivent
+        être chargés (dans la distance d'affichage). Avec ``states=True``, la palette contient l'état complet des
+        blocs (``"minecraft:oak_log[axis=y]"``) au lieu de leur seul nom.
+        """
+        return self._blocks({"min": _block_pos(corner1), "max": _block_pos(corner2)}, states)
+
+    def get_chunk(self, cx: int | None = None, cz: int | None = None, states: bool = False) -> BlockVolume:
+        """Chunk entier (16 × hauteur du monde × 16) de coordonnées de chunk (cx, cz) ; par défaut, celui du joueur."""
+        if (cx is None) != (cz is None):
+            raise ValueError("Donner cx et cz, ou aucun des deux")
+        if cx is None:
+            x, _, z = self.ping()["pos"]
+            cx, cz = math.floor(x) // 16, math.floor(z) // 16
+        return self._blocks({"chunk": [cx, cz]}, states)
+
+    def get_blocks_around(self, radius: int = 8, states: bool = False) -> BlockVolume:
+        """Cube de côté 2 × radius + 1 centré sur le bloc des pieds du joueur (position lue au même tick)."""
+        return self._blocks({"radius": radius}, states)
+
+    def _blocks(self, box: dict[str, Any], states: bool) -> BlockVolume:
+        ids, info = self._request({"type": "blocks", **box, "states": states})
+        return BlockVolume(ids, info["palette"], tuple(info["origin"]))
+
     # --- Transport ----------------------------------------------------------------------------
 
     def _request(self, message: dict[str, Any]) -> tuple[np.ndarray | None, dict[str, Any]]:
+        """Envoie une requête ; renvoie les données binaires décodées (image ou indices de blocs) et le JSON."""
         if self._sock is None:
             raise RuntimeError("Non connecté : appeler connect() d'abord")
 
@@ -223,15 +255,17 @@ class MinecraftClient:
         self._sock.sendall(struct.pack(">I", len(payload)) + payload)
 
         info = json.loads(self._recv_block().decode("utf-8"))
-        raw_frame = self._recv_block()
+        raw_data = self._recv_block()
         if not info.get("ok", False):
             raise McBotError(info.get("error", "erreur inconnue"))
 
-        image = None
-        if raw_frame:
+        data = None
+        if raw_data and info.get("payload") == "blocks":
+            data = np.frombuffer(raw_data, dtype=">u2").astype(np.uint16).reshape(info["shape"])
+        elif raw_data:
             height, width = info["frame_height"], info["frame_width"]
-            image = np.frombuffer(raw_frame, dtype=np.uint8).reshape(height, width, 3)
-        return image, info
+            data = np.frombuffer(raw_data, dtype=np.uint8).reshape(height, width, 3)
+        return data, info
 
     def _recv_block(self) -> bytes:
         (length,) = struct.unpack(">I", self._recv_exact(4))
@@ -258,6 +292,10 @@ def connect_with_retry(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT, retry
         except OSError:
             log(f"  Minecraft (avec le mod McBot) n'est pas joignable, nouvel essai dans {retry_seconds:g} s...")
             time.sleep(retry_seconds)
+
+
+def _block_pos(point: tuple[float, float, float]) -> list[int]:
+    return [math.floor(c) for c in point]
 
 
 def _ticks(seconds: float) -> int:

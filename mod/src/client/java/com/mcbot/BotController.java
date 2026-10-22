@@ -6,6 +6,7 @@ import com.google.gson.JsonObject;
 import com.mcbot.build.BuildActions;
 import com.mcbot.capture.FrameCapture;
 import com.mcbot.net.BotResponse;
+import com.mcbot.world.BlockScan;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.Options;
 import net.minecraft.client.gui.screens.PauseScreen;
@@ -33,6 +34,9 @@ import java.util.function.BooleanSupplier;
  *
  * <p>Les commandes de construction ({@code game_mode}, {@code fly}, {@code select_block}, {@code place_block},
  * {@code break_block}) sont exécutées immédiatement ; {@code game_mode} répond une fois le changement reçu par le client.
+ *
+ * <p>La commande {@code blocks} renvoie les blocs d'une boîte du monde (voir {@link BlockScan}), lus au même tick
+ * que l'état du joueur.
  */
 public class BotController {
 	private static final int MAX_TICKS_PER_STEP = 20 * 60;
@@ -175,6 +179,10 @@ public class BotController {
 					JsonObject result = BuildActions.breakBlock(client, getBlockPos(json), getBoolean(json, "look", true));
 					request.future().complete(buildResponse(client, result));
 				}
+				case "blocks" -> {
+					BlockScan.Result scan = scanBlocks(client, json);
+					request.future().complete(new BotResponse(buildResponse(client, scan.info()).info(), scan.data()));
+				}
 				default -> request.future().complete(BotResponse.error("Unknown request type: '" + type + "'"));
 			}
 		} catch (BotException e) {
@@ -224,6 +232,28 @@ public class BotController {
 		current = request;
 		ticksLeft = GAME_MODE_TIMEOUT_TICKS;
 		waitCondition = () -> BuildActions.isGameModeApplied(client, mode);
+	}
+
+	/**
+	 * Boîte demandée par une requête {@code blocks} : un chunk entier ({@code chunk} = [cx, cz]), un cube de rayon
+	 * {@code radius} centré sur le bloc des pieds du joueur, ou deux coins {@code min} et {@code max}.
+	 */
+	private static BlockScan.Result scanBlocks(Minecraft client, JsonObject json) {
+		LocalPlayer player = BuildActions.requirePlayer(client);
+		boolean states = getBoolean(json, "states", false);
+		if (json.has("chunk")) {
+			JsonArray chunk = json.getAsJsonArray("chunk");
+			return BlockScan.scanChunk(client.level, chunk.get(0).getAsInt(), chunk.get(1).getAsInt(), states);
+		}
+		if (json.has("radius")) {
+			int radius = getInt(json, "radius", 0);
+			if (radius < 0) {
+				throw new BotException("Invalid radius: " + radius);
+			}
+			BlockPos feet = player.blockPosition();
+			return BlockScan.scan(client.level, feet.offset(-radius, -radius, -radius), feet.offset(radius, radius, radius), states);
+		}
+		return BlockScan.scan(client.level, getBlockPos(json, "min"), getBlockPos(json, "max"), states);
 	}
 
 	/** Le programme Python a le focus : on empêche le jeu de se mettre en pause et on ferme le menu Pause. */
@@ -320,6 +350,9 @@ public class BotController {
 		}
 
 		byte[] frame = captureFrame && player != null ? FrameCapture.capture(client, frameWidth, frameHeight) : null;
+		if (frame != null) {
+			info.addProperty("payload", "frame");
+		}
 		return new BotResponse(info, frame);
 	}
 
@@ -336,6 +369,16 @@ public class BotController {
 			throw new BotException("Missing block coordinates: x, y, z");
 		}
 		return new BlockPos(json.get("x").getAsInt(), json.get("y").getAsInt(), json.get("z").getAsInt());
+	}
+
+	/** Coordonnées données sous forme de tableau [x, y, z]. */
+	private static BlockPos getBlockPos(JsonObject json, String key) {
+		JsonElement element = json.get(key);
+		if (element == null || !element.isJsonArray() || element.getAsJsonArray().size() != 3) {
+			throw new BotException("Missing or invalid parameter: '" + key + "' (expected [x, y, z])");
+		}
+		JsonArray array = element.getAsJsonArray();
+		return new BlockPos(array.get(0).getAsInt(), array.get(1).getAsInt(), array.get(2).getAsInt());
 	}
 
 	private static boolean getBoolean(JsonObject json, String key, boolean fallback) {

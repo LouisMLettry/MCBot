@@ -19,7 +19,7 @@ project, see the [main README](../README.md) (in French).
 ```mermaid
 flowchart LR
     subgraph Python["Python (python/)"]
-        S["Scripts<br/>demo_movements.py<br/>build_house.py"] --> B["Builder"]
+        S["Scripts<br/>demo_movements.py<br/>build_house.py<br/>scan_blocks.py"] --> B["Builder"]
         S --> C["MinecraftClient"]
         B --> C
     end
@@ -27,6 +27,7 @@ flowchart LR
         SRV["BotServer<br/>TCP thread"] --> CTRL["BotController<br/>game thread, every tick"]
         CTRL --> BA["BuildActions"]
         CTRL --> FC["FrameCapture"]
+        CTRL --> BS["BlockScan"]
     end
     C <-- "TCP 127.0.0.1:5555<br/>JSON + raw RGB image" --> SRV
 ```
@@ -35,8 +36,9 @@ flowchart LR
 
 - **Mod version:** 0.2.1, for Minecraft **1.21.1** exactly (not 1.21.11 — see [troubleshooting](troubleshooting.md)).
 - **Works:** moving the player, turning the camera, capturing frames, creative mode, flying, placing and breaking
-  blocks, building a small house automatically.
-- **Next:** reading chunk / block information from Python (see [roadmap](roadmap.md)).
+  blocks, building a small house automatically, reading the world's blocks (`get_blocks`, `get_chunk`,
+  `get_blocks_around`).
+- **Next:** see the [roadmap](roadmap.md).
 
 ## Keeping these docs up to date
 

@@ -2,27 +2,17 @@
 
 ## Next
 
-### Read chunk / block information from Python
+### More world information (when needed)
 
-The game client already holds the chunks around the player (within render distance), so the mod can read them
-without cheats. Proposed shape, not implemented yet:
-
-```python
-chunk = mc.get_chunk()              # chunk the player is in, or get_chunk(cx, cz)
-chunk.blocks                        # numpy (384, 16, 16): one number per block
-chunk.palette                       # names matching those numbers
-chunk.heightmap                     # (16, 16)
-mc.get_blocks((x1, y1, z1), (x2, y2, z2))   # a box, e.g. around the player
-```
-
-Block names would travel once as a list in the JSON, and the block numbers in the binary part of the response
-(the slot used for images today).
-
-Open questions:
-- Which information is needed: block types only, or also block states, biome, light, entities?
-- Whole chunks, a box around the player, or both?
-
-Limitation: only loaded chunks can be read. This needs a rebuild of the mod (`./gradlew build`).
+- **Heightmap:** for each column, the y of the highest block ("surface" or "motion-blocking" variant). Minecraft
+  already keeps these per chunk, so they are cheap.
+- **Entities** (mobs, dropped items) as a separate `get_entities` command.
+- **Biomes and light levels**, as options of the `blocks` command.
+- **Blocks attached to each `step`** (e.g. radius 8 around the player) for reinforcement learning, without a
+  separate request. Needs responses that can carry an image and blocks at the same time.
+- **Notifications when blocks change**, to keep a world map up to date in Python. Needs the mod to push messages,
+  not only answer requests.
+- **Unloaded chunks**, read through the singleplayer server.
 
 ## Housekeeping
 

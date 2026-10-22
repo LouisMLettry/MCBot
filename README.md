@@ -4,6 +4,7 @@ Piloter son personnage Minecraft depuis Python, avec les images du jeu, en vue d
 
 - `mod/` : mod **Fabric pour Minecraft 1.21.1** (côté client). Il ouvre un serveur TCP local (`127.0.0.1:5555`) qui reçoit des actions (avancer, tourner, sauter…) et renvoie l'état du joueur et, si demandé, une image du jeu.
 - `python/` : client Python (`mcbot`) et script de démonstration `demo_movements.py`.
+- `python/` : aussi `build_house.py` (construction) et `scan_blocks.py` (lecture des blocs autour du joueur).
 - `doc/` : documentation du système (architecture, journal, feuille de route).
 
 ## 1. Prérequis
@@ -127,10 +128,47 @@ with MinecraftClient() as mc:
 - Les identifiants de blocs sont ceux de Minecraft (`stone`, `oak_log`, `glass_pane`, `minecraft:red_wool`…).
 - Le joueur regarde chaque bloc qu'il pose (désactivable avec `look=False`).
 
-## 5. Protocole (pour info)
+## 5. Lire les blocs du monde
+
+Le mod lit les blocs tels que le jeu les connaît : seuls les **chunks chargés** (dans la distance d'affichage) sont
+disponibles. Pas besoin des cheats.
+
+### Exemple : carte des alentours
+Dans un monde, puis :
+```powershell
+cd python
+uv run python scan_blocks.py --radius 8
+```
+Affiche une carte vue de dessus autour du joueur (le bloc le plus haut de chaque colonne) et le nombre de blocs de
+chaque sorte.
+
+### Dans ton propre code
+```python
+from mcbot import MinecraftClient
+
+with MinecraftClient() as mc:
+    vol = mc.get_blocks_around(radius=8)       # cube de 17 × 17 × 17 centré sur les pieds du joueur
+    vol = mc.get_chunk()                       # chunk du joueur (ou get_chunk(cx, cz))
+    vol = mc.get_blocks((0, -64, 0), (31, -50, 31))   # boîte entre deux coins (inclus)
+
+    vol.ids            # np.ndarray uint16, indexé [x, y, z] depuis vol.origin
+    vol.palette        # ["minecraft:air", "minecraft:stone", ...] : vol.ids contient des indices de cette liste
+    vol.origin         # coordonnées monde de vol.ids[0, 0, 0]
+    vol.block_at(10, -60, 3)    # "minecraft:grass_block" (coordonnées monde)
+    vol.mask("water")           # tableau de booléens : où se trouve de l'eau
+```
+- `states=True` (sur les trois méthodes) donne l'état complet des blocs dans la palette, par exemple
+  `minecraft:oak_log[axis=x]` ou `minecraft:oak_door[facing=north,half=lower,open=false,...]`.
+- La boîte est limitée à la hauteur du monde et à 1 048 576 blocs (3 × 3 chunks entiers) par requête.
+- Erreurs possibles : chunk non chargé, boîte trop grande, boîte hors de la hauteur du monde.
+
+## 6. Protocole (pour info)
 Entiers big-endian, une requête → une réponse :
 - requête : `uint32 longueur` + JSON UTF-8 ;
-- réponse : `uint32 longueur` + JSON, puis `uint32 longueur` + pixels RGB bruts (`hauteur × largeur × 3`, ligne par ligne depuis le haut ; longueur 0 si pas d'image).
+- réponse : `uint32 longueur` + JSON, puis `uint32 longueur` + données binaires (longueur 0 s'il n'y en a pas).
+  Le champ `payload` du JSON indique leur contenu :
+  - `frame` : pixels RGB bruts (`hauteur × largeur × 3`, ligne par ligne depuis le haut) ;
+  - `blocks` : un `uint16` par bloc (indice dans `palette`), rangés par x, puis y, puis z.
 
 | `type` | Champs | Effet |
 |---|---|---|
@@ -142,6 +180,7 @@ Entiers big-endian, une requête → une réponse :
 | `select_block` | `block`, `slot` (0–8, optionnel) | Met le bloc en main (créé en créatif, cherché dans la barre sinon). |
 | `place_block` | `x`, `y`, `z`, `face` (défaut `up`), `look` (défaut `true`) | Pose le bloc tenu → `placed`, `reason`, `message`, `block`. |
 | `break_block` | `x`, `y`, `z`, `look` | Casse le bloc (créatif) → `broken`, `reason`, `block`. |
+| `blocks` | `min` et `max` [x, y, z], **ou** `chunk` [cx, cz], **ou** `radius` ; `states` (défaut `false`) | Blocs de la boîte → `origin` [x, y, z], `shape` [sx, sy, sz], `palette`, et les indices en binaire. |
 
 Réponse : `ok`, `error`, `tick`, `paused`, `screen`, `in_world`, `pos` [x, y, z], `motion` [vx, vy, vz] (blocs/tick), `yaw`, `pitch`, `on_ground`, `health`, `flying`, `may_fly`, `game_mode`, `reach`, `selected_slot`, `held_item`, `frame_width`, `frame_height`.
 
@@ -152,4 +191,4 @@ Le port peut être changé en lançant le jeu avec `-Dmcbot.port=XXXX`.
 cd python
 uv run pytest tests
 ```
-Ils vérifient le client Python avec un faux serveur (dont une simulation de la physique du vol pour `fly_to`) et le plan de la maison (tout est à portée, le joueur ne gêne jamais), sans lancer Minecraft.
+Ils vérifient le client Python avec un faux serveur (dont une simulation de la physique du vol pour `fly_to` et le décodage des blocs) et le plan de la maison (tout est à portée, le joueur ne gêne jamais), sans lancer Minecraft.

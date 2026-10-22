@@ -61,6 +61,11 @@ class FakeMod:
         info = {"ok": True, "in_world": True, "frame_width": 4, "frame_height": 2, **self.physics.state()}
         if request["type"] == "place_block":
             info.update(placed=True, target=[request["x"], request["y"], request["z"]])
+        if request["type"] == "blocks":
+            # Boîte 2 × 3 × 2 rangée par x, puis y, puis z : le bloc n° i a l'indice de palette i % 3.
+            info.update(payload="blocks", origin=request.get("min", [0, -64, 0]), shape=[2, 3, 2],
+                        palette=["minecraft:air", "minecraft:stone", "minecraft:oak_log[axis=y]"])
+            return info, (np.arange(12) % 3).astype(">u2").tobytes()
         if request.get("frame"):
             return info, bytes(range(4 * 2 * 3))
         return info, b""
@@ -160,3 +165,34 @@ def test_fly_to_reaches_target(client, target):
     assert math.hypot(x - target[0], z - target[2]) < 0.75
     assert abs(y - target[1]) < 0.35
     assert not any(client.fake.requests[-1]["action"][k] for k in ("forward", "back", "left", "right", "jump"))
+
+
+def test_get_blocks_decodes_volume(client):
+    volume = client.get_blocks((10.7, -60, 3), (11, -58, 4.2))
+    assert client.fake.requests[-1] == {"type": "blocks", "min": [10, -60, 3], "max": [11, -58, 4], "states": False}
+    assert volume.shape == (2, 3, 2) and volume.ids.dtype == np.uint16
+    assert volume.origin == (10, -60, 3)
+    # Bloc (i, j, k) relatif à l'origine : n° (i * 3 + j) * 2 + k, d'indice de palette n° % 3.
+    assert volume.block_at(10, -60, 4) == "minecraft:stone"          # n° 1
+    assert volume.block_at(11, -59, 3) == "minecraft:oak_log[axis=y]"  # n° 8
+    assert volume.block_at(10.4, -59, 4.9) == "minecraft:air"        # n° 3
+    with pytest.raises(IndexError):
+        volume.block_at(12, -60, 3)
+
+
+def test_block_mask(client):
+    volume = client.get_blocks((0, 0, 0), (1, 2, 1))
+    assert volume.mask("stone").sum() == 4
+    assert volume.mask("minecraft:oak_log").sum() == 4  # toutes les variantes d'état
+    assert not volume.mask("dirt").any()
+
+
+def test_chunk_and_around_requests(client):
+    client.get_chunk(2, -3)
+    assert client.fake.requests[-1] == {"type": "blocks", "chunk": [2, -3], "states": False}
+    client.get_chunk()  # chunk du joueur, en (0.5, -60, 0.5) dans le faux mod
+    assert client.fake.requests[-1] == {"type": "blocks", "chunk": [0, 0], "states": False}
+    client.get_blocks_around(radius=5, states=True)
+    assert client.fake.requests[-1] == {"type": "blocks", "radius": 5, "states": True}
+    with pytest.raises(ValueError):
+        client.get_chunk(1)
