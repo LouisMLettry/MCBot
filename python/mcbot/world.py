@@ -1,4 +1,4 @@
-"""Blocs du monde renvoyés par le mod : une palette de noms et, pour chaque bloc, son indice dans la palette."""
+"""World blocks returned by the mod: a palette of names and, for each block, its index in the palette."""
 
 from __future__ import annotations
 
@@ -10,13 +10,13 @@ import numpy as np
 
 @dataclass(frozen=True)
 class BlockVolume:
-    """Blocs d'une boîte du monde.
+    """Blocks of a box of the world.
 
-    ``ids[i, j, k]`` est l'indice dans ``palette`` du bloc en ``origin + (i, j, k)`` (coordonnées monde),
-    par exemple ``palette[ids[0, 0, 0]] == "minecraft:stone"``.
+    ``ids[i, j, k]`` is the index in ``palette`` of the block at ``origin + (i, j, k)`` (world coordinates),
+    for example ``palette[ids[0, 0, 0]] == "stone"`` (names without ``minecraft:``, see guidelines.md).
     """
 
-    ids: np.ndarray  # (taille x, taille y, taille z), uint16
+    ids: np.ndarray  # (size x, size y, size z), uint16
     palette: list[str]
     origin: tuple[int, int, int]
 
@@ -28,16 +28,16 @@ class BlockVolume:
         return all(0 <= c < s for c, s in zip(self._local(x, y, z), self.shape))
 
     def block_at(self, x: float, y: float, z: float) -> str:
-        """Nom du bloc aux coordonnées monde (x, y, z)."""
+        """Name of the block at world coordinates (x, y, z)."""
         if not self.contains(x, y, z):
-            raise IndexError(f"({x}, {y}, {z}) est hors de la boîte (origine {self.origin}, taille {self.shape})")
+            raise IndexError(f"({x}, {y}, {z}) is outside the box (origin {self.origin}, size {self.shape})")
         return self.palette[self.ids[self._local(x, y, z)]]
 
     def mask(self, block: str) -> np.ndarray:
-        """Tableau de booléens de même forme que ``ids`` : vrai là où se trouve ``block`` (``"stone"`` ou
-        ``"minecraft:stone"``). Si la palette contient les états (``states=True``), toutes les variantes comptent.
+        """Boolean array with the same shape as ``ids``: true where ``block`` is (``"stone"``, ``"minecraft:"``
+        accepted). If the palette contains states (``states=True``), every variant counts.
         """
-        name = block if ":" in block else f"minecraft:{block}"
+        name = block.removeprefix("minecraft:")
         matching = [i for i, entry in enumerate(self.palette) if entry.split("[", 1)[0] == name]
         return np.isin(self.ids, matching)
 

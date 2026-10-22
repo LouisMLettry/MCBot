@@ -1,4 +1,4 @@
-"""Teste le client Python contre un faux serveur qui imite le protocole du mod McBot (sans Minecraft)."""
+"""Tests the Python client against a fake server imitating the McBot mod protocol (no Minecraft needed)."""
 
 import json
 import math
@@ -27,7 +27,7 @@ def _recv_exact(conn: socket.socket, size: int) -> bytes:
 
 
 class FakeMod:
-    """Répond aux requêtes comme le mod et garde la trace de ce qu'il a reçu."""
+    """Answers requests like the mod and records what it received."""
 
     def __init__(self):
         self.server = socket.create_server(("127.0.0.1", 0))
@@ -62,9 +62,9 @@ class FakeMod:
         if request["type"] == "place_block":
             info.update(placed=True, target=[request["x"], request["y"], request["z"]])
         if request["type"] == "blocks":
-            # Boîte 2 × 3 × 2 rangée par x, puis y, puis z : le bloc n° i a l'indice de palette i % 3.
+            # 2 × 3 × 2 box ordered by x, then y, then z: block no. i has palette index i % 3.
             info.update(payload="blocks", origin=request.get("min", [0, -64, 0]), shape=[2, 3, 2],
-                        palette=["minecraft:air", "minecraft:stone", "minecraft:oak_log[axis=y]"])
+                        palette=["air", "stone", "oak_log[axis=y]"])
             return info, (np.arange(12) % 3).astype(">u2").tobytes()
         if request.get("frame"):
             return info, bytes(range(4 * 2 * 3))
@@ -72,7 +72,7 @@ class FakeMod:
 
 
 class FlightPhysics:
-    """Physique simplifiée du vol créatif (accélération 0,05/tick, frottements 0,91 et 0,6)."""
+    """Simplified creative flight physics (acceleration 0.05/tick, friction 0.91 and 0.6)."""
 
     def __init__(self):
         self.pos = [0.5, -60.0, 0.5]
@@ -126,10 +126,14 @@ def test_step_sends_full_action_and_decodes_frame(client):
     assert image[0, 1].tolist() == [3, 4, 5]
 
 
-def test_helpers_convert_seconds_to_ticks(client):
-    client.forward(seconds=2, sprint=True)
+def test_helpers_send_ticks(client):
+    client.forward(40, sprint=True)
     assert client.fake.requests[-1]["ticks"] == 40
     assert client.fake.requests[-1]["action"]["sprint"] is True
+    client.turn(90)
+    assert client.fake.requests[-1]["ticks"] == 10 and client.fake.requests[-1]["action"]["yaw"] == 90.0
+    client.look(-30, ticks=5)
+    assert client.fake.requests[-1]["ticks"] == 5 and client.fake.requests[-1]["action"]["pitch"] == -30.0
     image, _ = client.stop()
     assert image is None
     assert not any(v for k, v in client.fake.requests[-1]["action"].items() if k not in ("yaw", "pitch"))
@@ -172,10 +176,10 @@ def test_get_blocks_decodes_volume(client):
     assert client.fake.requests[-1] == {"type": "blocks", "min": [10, -60, 3], "max": [11, -58, 4], "states": False}
     assert volume.shape == (2, 3, 2) and volume.ids.dtype == np.uint16
     assert volume.origin == (10, -60, 3)
-    # Bloc (i, j, k) relatif à l'origine : n° (i * 3 + j) * 2 + k, d'indice de palette n° % 3.
-    assert volume.block_at(10, -60, 4) == "minecraft:stone"          # n° 1
-    assert volume.block_at(11, -59, 3) == "minecraft:oak_log[axis=y]"  # n° 8
-    assert volume.block_at(10.4, -59, 4.9) == "minecraft:air"        # n° 3
+    # Block (i, j, k) relative to the origin: no. (i * 3 + j) * 2 + k, with palette index no. % 3.
+    assert volume.block_at(10, -60, 4) == "stone"          # no. 1
+    assert volume.block_at(11, -59, 3) == "oak_log[axis=y]"  # no. 8
+    assert volume.block_at(10.4, -59, 4.9) == "air"        # no. 3
     with pytest.raises(IndexError):
         volume.block_at(12, -60, 3)
 
@@ -183,16 +187,24 @@ def test_get_blocks_decodes_volume(client):
 def test_block_mask(client):
     volume = client.get_blocks((0, 0, 0), (1, 2, 1))
     assert volume.mask("stone").sum() == 4
-    assert volume.mask("minecraft:oak_log").sum() == 4  # toutes les variantes d'état
+    assert volume.mask("minecraft:oak_log").sum() == 4  # prefix accepted, every state variant
     assert not volume.mask("dirt").any()
 
 
 def test_chunk_and_around_requests(client):
     client.get_chunk(2, -3)
     assert client.fake.requests[-1] == {"type": "blocks", "chunk": [2, -3], "states": False}
-    client.get_chunk()  # chunk du joueur, en (0.5, -60, 0.5) dans le faux mod
+    client.get_chunk()  # player's chunk, at (0.5, -60, 0.5) in the fake mod
     assert client.fake.requests[-1] == {"type": "blocks", "chunk": [0, 0], "states": False}
     client.get_blocks_around(radius=5, states=True)
     assert client.fake.requests[-1] == {"type": "blocks", "radius": 5, "states": True}
     with pytest.raises(ValueError):
         client.get_chunk(1)
+
+
+def test_with_keeps_existing_connection(client):
+    sock = client._sock
+    with client as mc:  # like `with connect_with_retry(...) as mc:`
+        assert mc is client and mc._sock is sock
+        assert mc.ping()["in_world"] is True
+    assert client._sock is None

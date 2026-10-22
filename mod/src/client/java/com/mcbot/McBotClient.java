@@ -7,13 +7,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Point d'entrée du mod : démarre le serveur TCP local et branche le contrôleur sur les ticks du client.
+ * Mod entry point: starts the local TCP server and hooks the controller on the client ticks.
  */
 public class McBotClient implements ClientModInitializer {
 	public static final String MOD_ID = "mcbot";
 	public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
-	/** Port par défaut, modifiable avec la propriété JVM -Dmcbot.port=XXXX. */
+	/** Default port, can be changed with the JVM property -Dmcbot.port=XXXX. */
 	public static final int DEFAULT_PORT = 5555;
 
 	@Override

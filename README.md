@@ -1,194 +1,199 @@
 # MinecraftBot
 
-Piloter son personnage Minecraft depuis Python, avec les images du jeu, en vue d'y brancher du ML plus tard.
+Drive your Minecraft character from Python, with images of the game, with a view to plugging in ML later.
 
-- `mod/` : mod **Fabric pour Minecraft 1.21.1** (côté client). Il ouvre un serveur TCP local (`127.0.0.1:5555`) qui reçoit des actions (avancer, tourner, sauter…) et renvoie l'état du joueur et, si demandé, une image du jeu.
-- `python/` : client Python (`mcbot`) et, dans `python/scripts/`, les scripts de démonstration : `demo_movements.py`
-  (déplacements), `build_house.py` (construction) et `scan_blocks.py` (lecture des blocs autour du joueur).
-- `doc/` : documentation du système (architecture, journal, feuille de route).
+- `mod/`: **Fabric mod for Minecraft 1.21.1** (client side). It opens a local TCP server (`127.0.0.1:5555`) that receives actions (move forward, turn, jump…) and sends back the player's state and, on request, an image of the game.
+- `python/`: Python client (`mcbot`) and, in `python/scripts/`, the demo scripts: `demo_movements.py`
+  (movement), `build_house.py` (building) and `scan_blocks.py` (reading the blocks around the player).
+- `doc/`: system documentation (architecture, journal, roadmap).
+- `guidelines.md`: conventions and decisions that apply to the whole project (units, block names, protocol…).
 
-## 1. Prérequis
+## 1. Requirements
 
-- **JDK 25** pour compiler le mod (le plugin Gradle Fabric « Loom » l'exige ; le mod lui-même cible Java 21, comme Minecraft 1.21.1) :
+- **JDK 25** to build the mod (the Fabric Gradle plugin "Loom" requires it; the mod itself targets Java 21, like Minecraft 1.21.1):
   ```powershell
   winget install EclipseAdoptium.Temurin.25.JDK
   ```
-  Rouvrir le terminal ensuite (`java -version` doit afficher 25 ou plus ; JDK 26 fonctionne aussi).
-- **Python 3.10+** et **[uv](https://docs.astral.sh/uv/)** pour gérer l'environnement Python
-  (les dépendances sont déclarées dans `python/pyproject.toml`) :
+  Then reopen the terminal (`java -version` must show 25 or higher; JDK 26 works too).
+- **Python 3.10+** and **[uv](https://docs.astral.sh/uv/)** to manage the Python environment
+  (dependencies are declared in `python/pyproject.toml`):
   ```powershell
   winget install astral-sh.uv
   ```
 
-## 2. Mettre le mod dans Minecraft
+## 2. Putting the mod into Minecraft
 
-### Option A — mode développement (le plus simple)
-Lance un Minecraft déjà équipé du mod, sans passer par le launcher (compte hors ligne « Player… ») :
+### Option A — development mode (the simplest)
+Starts a Minecraft that already has the mod, without going through the launcher (offline account "Player…"):
 ```powershell
 cd mod
 .\gradlew.bat runClient
 ```
-Le premier lancement télécharge Minecraft et les dépendances (quelques minutes). Dans les logs, tu dois voir :
+(`./gradlew runClient` on macOS / Linux.) The first launch downloads Minecraft and the dependencies (a few minutes). In the logs, you should see:
 ```
 [McBot-Server/INFO] (mcbot) McBot listening on 127.0.0.1:5555
 ```
 
-### Option B — dans ton Minecraft habituel (launcher officiel)
-1. Compiler le mod :
+### Option B — in your usual Minecraft (official launcher)
+1. Build the mod:
    ```powershell
    cd mod
    .\gradlew.bat build
    ```
-   → le fichier du mod est `mod\build\libs\mcbot-0.2.1.jar` (pas celui en `-sources`).
-   Lors d'une mise à jour, supprimer l'ancien `mcbot-*.jar` du dossier `mods` avant de copier le nouveau.
-2. Installer **Fabric Loader** pour 1.21.1 avec l'installeur officiel : <https://fabricmc.net/use/installer/> (onglet *Client*, version 1.21.1).
-   Attention à ne pas choisir **1.21.11** : le mod exige exactement 1.21.1 et Fabric refuse de le charger sinon.
-3. Télécharger **Fabric API** pour 1.21.1 : <https://modrinth.com/mod/fabric-api> (version `…+1.21.1`).
-4. Copier `mcbot-0.2.1.jar` **et** le jar de Fabric API dans `%APPDATA%\.minecraft\mods` (créer le dossier s'il n'existe pas).
-5. Dans le launcher, choisir le profil **fabric-loader-1.21.1** et jouer.
+   (`./gradlew build` on macOS / Linux.)
+   → the mod file is `mod\build\libs\mcbot-0.2.1.jar` (not the `-sources` one).
+   When updating, remove the old `mcbot-*.jar` from the `mods` folder before copying the new one.
+2. Install **Fabric Loader** for 1.21.1 with the official installer: <https://fabricmc.net/use/installer/> (*Client* tab, version 1.21.1).
+   Be careful not to pick **1.21.11**: the mod requires exactly 1.21.1 and Fabric refuses to load it otherwise.
+3. Download **Fabric API** for 1.21.1: <https://modrinth.com/mod/fabric-api> (version `…+1.21.1`).
+4. Copy `mcbot-0.2.1.jar` **and** the Fabric API jar into `%APPDATA%\.minecraft\mods` (Windows) or
+   `~/Library/Application Support/minecraft/mods` (macOS); create the folder if it doesn't exist.
+5. In the launcher, pick the **fabric-loader-1.21.1** profile and play.
 
-Astuce (macOS / Linux) : au lieu de copier le jar à chaque compilation, mettre dans `mods` un lien symbolique
-vers le jar compilé ; il suffit ensuite de relancer Minecraft après un `./gradlew build` :
+Tip (macOS / Linux): instead of copying the jar after every build, put a symbolic link to the built jar in `mods`;
+then restarting Minecraft after a `./gradlew build` is enough:
 ```bash
-ln -s "$PWD/build/libs/mcbot-0.2.1.jar" ~/Library/Application\ Support/minecraft/mods/mcbot-0.2.1.jar   # depuis mod/
+ln -s "$PWD/build/libs/mcbot-0.2.1.jar" ~/Library/Application\ Support/minecraft/mods/mcbot-0.2.1.jar   # from mod/
 ```
-Lier le jar, pas tout le dossier `build/libs` (Fabric chargerait aussi le jar `-sources`). Le lien est à refaire
-si la version du mod change, car elle fait partie du nom du fichier.
+Link the jar, not the whole `build/libs` folder (Fabric would also load the `-sources` jar). The link has to be
+recreated if the mod version changes, since it is part of the file name.
 
-## 3. Faire bouger le personnage depuis Python
+## 3. Moving the character from Python
 
-1. Dans Minecraft, créer/entrer dans un **monde solo** (idéalement *Superflat* pour avoir de la place).
-2. Dans un autre terminal :
+1. In Minecraft, create/enter a **singleplayer world** (ideally *Superflat*, to have room).
+2. In another terminal:
    ```powershell
    cd python
    uv sync
    uv run python scripts/demo_movements.py
    ```
-   `uv sync` crée l'environnement `.venv` et installe les dépendances (à refaire après une mise à jour de
-   `pyproject.toml`) ; `uv run` lance la commande dans cet environnement.
-   Le personnage avance, tourne, saute, regarde en haut et en bas, marche en rond, sprinte…
-   Des captures sont enregistrées dans `python/frames/`.
+   `uv sync` creates the `.venv` environment and installs the dependencies (run it again after `pyproject.toml`
+   changes); `uv run` runs the command in that environment.
+   The character moves forward, turns, jumps, looks up and down, walks in a circle, sprints…
+   Screenshots are saved in `python/frames/`.
 
-Tu peux cliquer sur le terminal : le mod désactive la mise en pause automatique pendant qu'un script est connecté (et ferme le menu Pause s'il est ouvert).
+You can click on the terminal: the mod disables automatic pausing while a script is connected (and closes the Pause menu if it is open).
 
-### Utiliser le client dans ton propre code
+### Using the client in your own code
 ```python
 from mcbot import MinecraftClient
 
 with MinecraftClient() as mc:            # 127.0.0.1:5555
-    mc.config(width=160, height=90)       # taille des images renvoyées
-    image, info = mc.forward(seconds=1, frame=True)   # image : np.ndarray (90, 160, 3) uint8
+    mc.config(width=160, height=90)       # size of the returned images
+    image, info = mc.forward(20, frame=True)   # move forward 20 ticks (1 s); image: np.ndarray (90, 160, 3) uint8
     print(info["pos"], info["yaw"])
-    mc.turn(90)                           # tourner de 90° à droite en 0,5 s
-    mc.step(ticks=20, forward=True, jump=True, yaw=-45)   # action libre pendant 1 s
-    mc.stop()                             # relâcher toutes les touches
+    mc.turn(90)                           # turn 90° right in 10 ticks (0.5 s)
+    mc.step(ticks=20, forward=True, jump=True, yaw=-45)   # free action for 1 s
+    mc.stop()                             # release all keys
 ```
-Touches disponibles pour `step` : `forward, back, left, right, jump, sprint, sneak, attack, use`, plus `yaw` (degrés, > 0 = droite) et `pitch` (degrés, > 0 = vers le bas). 20 ticks = 1 seconde.
-**Les touches restent enfoncées jusqu'à la commande suivante** (utile pour enchaîner des pas sans à-coups) ; `stop()` ou la déconnexion les relâchent.
+Keys available for `step`: `forward, back, left, right, jump, sprint, sneak, attack, use`, plus `yaw` (degrees, > 0 = right) and `pitch` (degrees, > 0 = down). All durations are in ticks: 20 ticks = 1 second
+(`TICKS_PER_SECOND`, see [guidelines.md](guidelines.md)).
+**Keys stay pressed until the next command** (useful to chain steps smoothly); `stop()` or disconnecting releases them.
 
-## 4. Construction automatique
+## 4. Automatic building
 
-Le mod sait aussi :
-1. passer en **mode construction** (créatif) — dans un monde solo, même sans les cheats ;
-2. **voler** (en vol : `jump` = monter, `sneak` = descendre) ;
-3. **choisir le bloc** en main (n'importe quel bloc du jeu en mode construction) ;
-4. **poser** un bloc à des coordonnées précises (à portée : 5 blocs en créatif), et en **casser** un.
+The mod can also:
+1. switch to **build mode** (creative) — in a singleplayer world, even without cheats;
+2. **fly** (while flying: `jump` = up, `sneak` = down);
+3. **choose the block** in hand (any block in the game in build mode);
+4. **place** a block at precise coordinates (within reach: 5 blocks in creative), and **break** one.
 
-### Exemple : une petite maison
-Se tenir **au sol** dans un monde solo (Superflat idéal), face à un espace libre, puis :
+### Example: a small house
+Stand **on the ground** in a singleplayer world (Superflat is ideal), facing a free area, then:
 ```powershell
 cd python
 uv run python scripts/build_house.py
 ```
-Le personnage passe en créatif, s'envole, pose le sol, fait le tour des murs (fenêtres, porte, torche), construit un toit
-en pyramide, puis recule pour photographier la maison (`python/frames/maison.png`). Environ 200 blocs, ~1 minute.
-Option `--delay N` : ticks d'attente après chaque bloc (défaut 2 ; 0 = le plus rapide).
+The character switches to creative, takes off, lays the floor, goes around the walls (windows, door, torch), builds a
+pyramid roof, then backs away to take a picture of the house (`python/frames/house.png`). About 200 blocks, ~1 minute.
+Option `--delay N`: ticks to wait after each block (default 2; 0 = fastest).
 
-### Dans ton propre code
+### In your own code
 ```python
 from mcbot import Builder, MinecraftClient, Phase, Placement
 
 with MinecraftClient() as mc:
-    mc.set_build_mode(True)              # créatif ; set_build_mode(False) = survie
+    mc.set_build_mode(True)              # creative; set_build_mode(False) = survival
     mc.set_flying(True)
-    mc.fly_to(10.5, -57, 3.5)            # vole jusqu'à cette position (pieds), puis s'arrête
+    mc.fly_to(10.5, -57, 3.5)            # fly to this position (feet), then stop
     mc.select_block("oak_planks", slot=0)
-    info = mc.place_block(10, -60, 6)    # info["placed"] : True / False (+ info["reason"])
-    mc.place_block(11, -59, 6, face="north")   # face cliquée : oriente bûches, dalles, escaliers
+    info = mc.place_block(10, -60, 6)    # info["placed"]: True / False (+ info["reason"])
+    mc.place_block(11, -59, 6, face="north")   # clicked face: orients logs, slabs, stairs
     mc.break_block(10, -60, 6)
 
-    # Ou en laissant le Builder voler à portée et changer de bloc tout seul :
+    # Or let the Builder fly within reach and switch blocks on its own:
     Builder(mc).build([
-        Phase("Muret", standpoint=(0.5, -58, 0.5),
+        Phase("Low wall", standpoint=(0.5, -58, 0.5),
               blocks=[Placement((x, -60, 3), "cobblestone") for x in range(-2, 3)]),
     ])
 ```
-- `place_block` ne nécessite pas de bloc voisin : on peut construire en l'air. Raisons d'échec possibles :
+- `place_block` doesn't need a neighbouring block: you can build in mid-air. Possible failure reasons:
   `occupied`, `out_of_reach`, `no_block_selected`, `player_in_the_way`, `rejected`.
-- Les identifiants de blocs sont ceux de Minecraft (`stone`, `oak_log`, `glass_pane`, `minecraft:red_wool`…).
-- Le joueur regarde chaque bloc qu'il pose (désactivable avec `look=False`).
+- Block identifiers are Minecraft's, without the `minecraft:` prefix (`stone`, `oak_log`, `glass_pane`,
+  `red_wool`…); the prefix is accepted but never appears in responses (see [guidelines.md](guidelines.md)).
+- The player looks at each block it places (can be disabled with `look=False`).
 
-## 5. Lire les blocs du monde
+## 5. Reading the world's blocks
 
-Le mod lit les blocs tels que le jeu les connaît : seuls les **chunks chargés** (dans la distance d'affichage) sont
-disponibles. Pas besoin des cheats.
+The mod reads blocks as the game knows them: only **loaded chunks** (within render distance) are
+available. No cheats needed.
 
-### Exemple : carte des alentours
-Dans un monde, puis :
+### Example: map of the surroundings
+In a world, then:
 ```powershell
 cd python
 uv run python scripts/scan_blocks.py --radius 8
 ```
-Affiche une carte vue de dessus autour du joueur (le bloc le plus haut de chaque colonne) et le nombre de blocs de
-chaque sorte.
+Shows a top-down map around the player (the highest block of each column) and the number of blocks of
+each kind.
 
-### Dans ton propre code
+### In your own code
 ```python
 from mcbot import MinecraftClient
 
 with MinecraftClient() as mc:
-    vol = mc.get_blocks_around(radius=8)       # cube de 17 × 17 × 17 centré sur les pieds du joueur
-    vol = mc.get_chunk()                       # chunk du joueur (ou get_chunk(cx, cz))
-    vol = mc.get_blocks((0, -64, 0), (31, -50, 31))   # boîte entre deux coins (inclus)
+    vol = mc.get_blocks_around(radius=8)       # 17 × 17 × 17 cube centred on the player's feet
+    vol = mc.get_chunk()                       # the player's chunk (or get_chunk(cx, cz))
+    vol = mc.get_blocks((0, -64, 0), (31, -50, 31))   # box between two corners (included)
 
-    vol.ids            # np.ndarray uint16, indexé [x, y, z] depuis vol.origin
-    vol.palette        # ["minecraft:air", "minecraft:stone", ...] : vol.ids contient des indices de cette liste
-    vol.origin         # coordonnées monde de vol.ids[0, 0, 0]
-    vol.block_at(10, -60, 3)    # "minecraft:grass_block" (coordonnées monde)
-    vol.mask("water")           # tableau de booléens : où se trouve de l'eau
+    vol.ids            # np.ndarray uint16, indexed [x, y, z] from vol.origin
+    vol.palette        # ["air", "stone", ...]: vol.ids contains indices into this list
+    vol.origin         # world coordinates of vol.ids[0, 0, 0]
+    vol.block_at(10, -60, 3)    # "grass_block" (world coordinates)
+    vol.mask("water")           # boolean array: where there is water
 ```
-- `states=True` (sur les trois méthodes) donne l'état complet des blocs dans la palette, par exemple
-  `minecraft:oak_log[axis=x]` ou `minecraft:oak_door[facing=north,half=lower,open=false,...]`.
-- La boîte est limitée à la hauteur du monde et à 1 048 576 blocs (3 × 3 chunks entiers) par requête.
-- Erreurs possibles : chunk non chargé, boîte trop grande, boîte hors de la hauteur du monde.
+- `states=True` (on all three methods) gives the full block state in the palette, for example
+  `oak_log[axis=x]` or `oak_door[facing=north,half=lower,open=false,...]`.
+- The box is limited to the world's height and to 1,048,576 blocks (3 × 3 full chunks) per request.
+- Possible errors: chunk not loaded, box too large, box outside the world's height.
 
-## 6. Protocole (pour info)
-Entiers big-endian, une requête → une réponse :
-- requête : `uint32 longueur` + JSON UTF-8 ;
-- réponse : `uint32 longueur` + JSON, puis `uint32 longueur` + données binaires (longueur 0 s'il n'y en a pas).
-  Le champ `payload` du JSON indique leur contenu :
-  - `frame` : pixels RGB bruts (`hauteur × largeur × 3`, ligne par ligne depuis le haut) ;
-  - `blocks` : un `uint16` par bloc (indice dans `palette`), rangés par x, puis y, puis z.
+## 6. Protocol (for reference)
+Big-endian integers, one request → one response:
+- request: `uint32 length` + UTF-8 JSON;
+- response: `uint32 length` + JSON, then `uint32 length` + binary data (length 0 if there is none).
+  The JSON field `payload` says what it contains:
+  - `frame`: raw RGB pixels (`height × width × 3`, row by row from the top);
+  - `blocks`: one `uint16` per block (index into `palette`), ordered by x, then y, then z.
 
-| `type` | Champs | Effet |
+| `type` | Fields | Effect |
 |---|---|---|
-| `ping` | — | Renvoie l'état. |
-| `config` | `width`, `height`, `hide_gui` (optionnel) | Taille des images (16–1024 px) ; masquer l'interface comme F1. |
-| `step` | `ticks`, `frame`, `action` {touches booléennes, `yaw`, `pitch`} | Applique l'action pendant `ticks` ticks puis répond. |
-| `game_mode` | `mode` (`survival`, `creative`, `adventure`, `spectator`) | Change le mode de jeu (monde solo) ; répond une fois appliqué. |
-| `fly` | `enabled` | Active/coupe le vol (créatif). Le vol est rallumé automatiquement s'il se coupe en l'air. |
-| `select_block` | `block`, `slot` (0–8, optionnel) | Met le bloc en main (créé en créatif, cherché dans la barre sinon). |
-| `place_block` | `x`, `y`, `z`, `face` (défaut `up`), `look` (défaut `true`) | Pose le bloc tenu → `placed`, `reason`, `message`, `block`. |
-| `break_block` | `x`, `y`, `z`, `look` | Casse le bloc (créatif) → `broken`, `reason`, `block`. |
-| `blocks` | `min` et `max` [x, y, z], **ou** `chunk` [cx, cz], **ou** `radius` ; `states` (défaut `false`) | Blocs de la boîte → `origin` [x, y, z], `shape` [sx, sy, sz], `palette`, et les indices en binaire. |
+| `ping` | — | Returns the state. |
+| `config` | `width`, `height`, `hide_gui` (optional) | Image size (16–1024 px); hide the interface like F1. |
+| `step` | `ticks`, `frame`, `action` {boolean keys, `yaw`, `pitch`} | Applies the action for `ticks` ticks, then responds. |
+| `game_mode` | `mode` (`survival`, `creative`, `adventure`, `spectator`) | Changes the game mode (singleplayer world); responds once applied. |
+| `fly` | `enabled` | Starts/stops flying (creative). Flying is turned back on automatically if it stops in mid-air. |
+| `select_block` | `block`, `slot` (0–8, optional) | Puts the block in hand (created in creative, looked up in the hotbar otherwise). |
+| `place_block` | `x`, `y`, `z`, `face` (default `up`), `look` (default `true`) | Places the held block → `placed`, `reason`, `message`, `block`. |
+| `break_block` | `x`, `y`, `z`, `look` | Breaks the block (creative) → `broken`, `reason`, `block`. |
+| `blocks` | `min` and `max` [x, y, z], **or** `chunk` [cx, cz], **or** `radius`; `states` (default `false`) | Blocks of the box → `origin` [x, y, z], `shape` [sx, sy, sz], `palette`, and the indices in binary. |
 
-Réponse : `ok`, `error`, `tick`, `paused`, `screen`, `in_world`, `pos` [x, y, z], `motion` [vx, vy, vz] (blocs/tick), `yaw`, `pitch`, `on_ground`, `health`, `flying`, `may_fly`, `game_mode`, `reach`, `selected_slot`, `held_item`, `frame_width`, `frame_height`.
+Response: `ok`, `error`, `tick`, `paused`, `screen`, `in_world`, `pos` [x, y, z], `motion` [vx, vy, vz] (blocks/tick), `yaw`, `pitch`, `on_ground`, `health`, `flying`, `may_fly`, `game_mode`, `reach`, `selected_slot`, `held_item`, `frame_width`, `frame_height`.
 
-Le port peut être changé en lançant le jeu avec `-Dmcbot.port=XXXX`.
+The port can be changed by launching the game with `-Dmcbot.port=XXXX`.
 
 ## Tests
 ```powershell
 cd python
 uv run pytest tests
 ```
-Ils vérifient le client Python avec un faux serveur (dont une simulation de la physique du vol pour `fly_to` et le décodage des blocs) et le plan de la maison (tout est à portée, le joueur ne gêne jamais), sans lancer Minecraft.
+They check the Python client against a fake server (including a simulation of flight physics for `fly_to` and block decoding) and the house plan (everything is within reach, the player is never in the way), without launching Minecraft.

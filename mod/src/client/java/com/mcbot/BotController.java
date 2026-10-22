@@ -25,18 +25,18 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.function.BooleanSupplier;
 
 /**
- * Exécute les commandes reçues sur le thread du jeu, un tick client à la fois.
+ * Runs the received commands on the game thread, one client tick at a time.
  *
- * <p>Une commande {@code step} maintient les touches demandées pendant {@code ticks} ticks (20 ticks = 1 s),
- * en répartissant la rotation de la caméra sur ces ticks, puis répond avec l'état du joueur et, si demandé,
- * une image. Les touches restent enfoncées jusqu'à la commande suivante, ce qui évite les à-coups entre deux pas ;
- * elles sont toutes relâchées à la déconnexion du client.
+ * <p>A {@code step} command holds the requested keys for {@code ticks} ticks (20 ticks = 1 s),
+ * spreading the camera rotation over those ticks, then answers with the player's state and, if requested,
+ * an image. Keys stay pressed until the next command, which avoids jerks between two steps;
+ * they are all released when the client disconnects.
  *
- * <p>Les commandes de construction ({@code game_mode}, {@code fly}, {@code select_block}, {@code place_block},
- * {@code break_block}) sont exécutées immédiatement ; {@code game_mode} répond une fois le changement reçu par le client.
+ * <p>Building commands ({@code game_mode}, {@code fly}, {@code select_block}, {@code place_block},
+ * {@code break_block}) run immediately; {@code game_mode} answers once the client has received the change.
  *
- * <p>La commande {@code blocks} renvoie les blocs d'une boîte du monde (voir {@link BlockScan}), lus au même tick
- * que l'état du joueur.
+ * <p>The {@code blocks} command returns the blocks of a box of the world (see {@link BlockScan}), read at the same tick
+ * as the player's state.
  */
 public class BotController {
 	private static final int MAX_TICKS_PER_STEP = 20 * 60;
@@ -73,10 +73,10 @@ public class BotController {
 	private long tickCount;
 	private Boolean savedPauseOnLostFocus;
 	private boolean keysHeld;
-	/** Rallume le vol s'il a été coupé (double appui sur saut, atterrissage puis saut…). */
+	/** Turns flying back on if it was turned off (double jump press, landing then jumping…). */
 	private boolean keepFlying;
 
-	// Commande en cours (step, ou attente d'un changement de mode de jeu)
+	// Current command (step, or waiting for a game mode change)
 	private BotRequest current;
 	private int ticksLeft;
 	private float yawPerTick;
@@ -84,14 +84,14 @@ public class BotController {
 	private boolean captureFrame;
 	private BooleanSupplier waitCondition;
 
-	/** Appelé depuis le thread réseau : la commande sera traitée au prochain tick du jeu. */
+	/** Called from the network thread: the command will be handled at the next game tick. */
 	public CompletableFuture<BotResponse> submit(JsonObject json) {
 		CompletableFuture<BotResponse> future = new CompletableFuture<>();
 		queue.add(new BotRequest(json, future));
 		return future;
 	}
 
-	/** Appelé depuis le thread réseau à la déconnexion : relâche les touches au prochain tick. */
+	/** Called from the network thread on disconnect: releases the keys at the next tick. */
 	public void releaseAll() {
 		releaseRequested = true;
 	}
@@ -235,8 +235,8 @@ public class BotController {
 	}
 
 	/**
-	 * Boîte demandée par une requête {@code blocks} : un chunk entier ({@code chunk} = [cx, cz]), un cube de rayon
-	 * {@code radius} centré sur le bloc des pieds du joueur, ou deux coins {@code min} et {@code max}.
+	 * Box requested by a {@code blocks} request: a whole chunk ({@code chunk} = [cx, cz]), a cube of radius
+	 * {@code radius} centred on the block of the player's feet, or two corners {@code min} and {@code max}.
 	 */
 	private static BlockScan.Result scanBlocks(Minecraft client, JsonObject json) {
 		LocalPlayer player = BuildActions.requirePlayer(client);
@@ -256,7 +256,7 @@ public class BotController {
 		return BlockScan.scan(client.level, getBlockPos(json, "min"), getBlockPos(json, "max"), states);
 	}
 
-	/** Le programme Python a le focus : on empêche le jeu de se mettre en pause et on ferme le menu Pause. */
+	/** The Python program has the focus: keep the game from pausing and close the Pause menu. */
 	private void prepareForControl(Minecraft client) {
 		if (savedPauseOnLostFocus == null) {
 			savedPauseOnLostFocus = client.options.pauseOnLostFocus;
@@ -296,7 +296,7 @@ public class BotController {
 			client.options.pauseOnLostFocus = savedPauseOnLostFocus;
 			savedPauseOnLostFocus = null;
 		}
-		// Pas de queue.clear() : la file peut déjà contenir la première requête du client suivant.
+		// No queue.clear(): the queue may already hold the first request of the next client.
 		if (current != null) {
 			finish(BotResponse.error("Client disconnected"));
 		}
@@ -371,7 +371,7 @@ public class BotController {
 		return new BlockPos(json.get("x").getAsInt(), json.get("y").getAsInt(), json.get("z").getAsInt());
 	}
 
-	/** Coordonnées données sous forme de tableau [x, y, z]. */
+	/** Coordinates given as an array [x, y, z]. */
 	private static BlockPos getBlockPos(JsonObject json, String key) {
 		JsonElement element = json.get(key);
 		if (element == null || !element.isJsonArray() || element.getAsJsonArray().size() != 3) {

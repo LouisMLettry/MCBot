@@ -1,4 +1,4 @@
-"""Vérifie le plan de la maison : chaque bloc est à portée depuis son point de vol, sans gêner le joueur."""
+"""Checks the house plan: every block is within reach from its flying spot, without getting in the player's way."""
 
 import math
 import sys
@@ -10,15 +10,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 
 import build_house  # noqa: E402
 
-REACH = 5.0  # portée en créatif
-SAFETY = 0.5  # marge par rapport à la portée
+REACH = 5.0  # reach in creative
+SAFETY = 0.5  # margin below the reach
 EYE_HEIGHT = 1.62
 PLAYER_HALF_WIDTH, PLAYER_HEIGHT = 0.3, 1.8
-FLY_TOLERANCE, FLY_VERTICAL_TOLERANCE = 0.75, 0.35  # valeurs par défaut de fly_to
+FLY_TOLERANCE, FLY_VERTICAL_TOLERANCE = 0.75, 0.35  # fly_to defaults
 
 
 def distance_to_block(point, block):
-    """Distance entre un point et le cube d'un bloc (comme Minecraft pour la portée)."""
+    """Distance between a point and the cube of a block (as Minecraft computes reach)."""
     return math.sqrt(sum(max(b - p, 0, p - (b + 1)) ** 2 for p, b in zip(point, block)))
 
 
@@ -35,7 +35,7 @@ def intersects(box, block):
 
 
 def local_phases():
-    """Phases avec un point de vol au centre de la case, en coordonnées locales."""
+    """Phases with a flying spot at the centre of the cell, in local coordinates."""
     return [(name, (sx + 0.5, sy, sz + 0.5), blocks) for name, (sx, sy, sz), blocks in build_house.house_plan()]
 
 
@@ -48,8 +48,8 @@ def test_block_count_and_no_duplicates():
 def test_door_opening():
     blocks = {pos: block for _, _, phase_blocks in local_phases() for pos, block in phase_blocks}
     assert blocks[(3, 1, 0)] == build_house.DOOR
-    assert (3, 2, 0) not in blocks  # moitié haute de la porte, posée automatiquement
-    assert blocks[(3, 3, 0)] == build_house.WALL  # linteau
+    assert (3, 2, 0) not in blocks  # upper half of the door, placed automatically
+    assert blocks[(3, 3, 0)] == build_house.WALL  # lintel
 
 
 def test_every_block_is_within_reach_from_its_standpoint():
@@ -66,7 +66,7 @@ def test_player_never_stands_in_a_block():
         for pos, _ in blocks:
             assert not intersects(box, pos), (name, pos)
         for pos in placed:
-            assert not intersects(box, pos), (name, "déjà posé", pos)
+            assert not intersects(box, pos), (name, "already placed", pos)
         placed.update(pos for pos, _ in blocks)
 
 
@@ -78,7 +78,7 @@ def test_house_is_built_in_front_of_the_player(yaw):
 
     px, pz = math.floor(player[0]), math.floor(player[2])
 
-    def ahead(block):  # en blocs, depuis le bloc du joueur, dans la direction du regard
+    def ahead(block):  # in blocks, from the player's block, in the looking direction
         return (block[0] - px) * forward[0] + (block[2] - pz) * forward[1]
 
     def sideways(block):
@@ -87,9 +87,9 @@ def test_house_is_built_in_front_of_the_player(yaw):
     door = frame.block(3, 1, 0)
     back = frame.block(3, 1, 6)
     assert ahead(door) == build_house.DISTANCE
-    assert sideways(door) == 0  # porte dans l'axe du regard
+    assert sideways(door) == 0  # door in line with the player's gaze
     assert ahead(back) == build_house.DISTANCE + 6
-    assert frame.block(3, 0, 0)[1] == -60  # le sol de la maison est au niveau des pieds
+    assert frame.block(3, 0, 0)[1] == -60  # the house floor is at feet level
     assert door[1] == -59
     look = math.radians(frame.yaw)
     assert (round(-math.sin(look)), round(math.cos(look))) == forward

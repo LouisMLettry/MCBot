@@ -3,6 +3,7 @@ package com.mcbot.build;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.mcbot.BotException;
+import com.mcbot.Names;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.player.LocalPlayer;
@@ -30,17 +31,17 @@ import net.minecraft.world.phys.Vec3;
 import java.util.UUID;
 
 /**
- * Actions de construction : mode de jeu, vol, choix du bloc en main, pose et destruction de blocs.
- * Toutes ces méthodes s'exécutent sur le thread du jeu.
+ * Building actions: game mode, flying, choosing the block in hand, placing and breaking blocks.
+ * All these methods run on the game thread.
  */
 public final class BuildActions {
-	/** Index du premier emplacement de la barre d'accès rapide dans le menu d'inventaire du joueur. */
+	/** Index of the first hotbar slot in the player's inventory menu. */
 	private static final int HOTBAR_MENU_OFFSET = 36;
 
 	private BuildActions() {
 	}
 
-	// --- Mode de jeu ------------------------------------------------------------------------------
+	// --- Game mode --------------------------------------------------------------------------------
 
 	public static GameType parseGameMode(String name) {
 		GameType mode = GameType.byName(name, null);
@@ -50,7 +51,7 @@ public final class BuildActions {
 		return mode;
 	}
 
-	/** Demande au serveur intégré (monde solo) de changer le mode de jeu du joueur ; ne nécessite pas les cheats. */
+	/** Asks the integrated server (singleplayer world) to change the player's game mode; does not need cheats. */
 	public static void requestGameMode(Minecraft client, GameType mode) {
 		IntegratedServer server = client.getSingleplayerServer();
 		if (server == null) {
@@ -65,7 +66,7 @@ public final class BuildActions {
 		});
 	}
 
-	/** Vrai quand le client a reçu le nouveau mode de jeu (et, en créatif, le droit de voler). */
+	/** True once the client has received the new game mode (and, in creative, the right to fly). */
 	public static boolean isGameModeApplied(Minecraft client, GameType mode) {
 		LocalPlayer player = client.player;
 		if (player == null || client.gameMode == null || client.gameMode.getPlayerMode() != mode) {
@@ -74,7 +75,7 @@ public final class BuildActions {
 		return !mode.isCreative() || player.getAbilities().mayfly;
 	}
 
-	// --- Vol --------------------------------------------------------------------------------------
+	// --- Flying -----------------------------------------------------------------------------------
 
 	public static void setFlying(LocalPlayer player, boolean enabled) {
 		Abilities abilities = player.getAbilities();
@@ -86,17 +87,17 @@ public final class BuildActions {
 			player.onUpdateAbilities();
 		}
 		if (enabled && player.onGround()) {
-			// Au sol, le jeu coupe le vol au tick suivant : on décolle d'environ un bloc.
+			// On the ground, the game turns flying off at the next tick: take off by about one block.
 			Vec3 motion = player.getDeltaMovement();
 			player.setDeltaMovement(motion.x, 0.5, motion.z);
 		}
 	}
 
-	// --- Choix du bloc ----------------------------------------------------------------------------
+	// --- Choosing the block -----------------------------------------------------------------------
 
 	/**
-	 * Met {@code itemId} en main. En créatif, l'objet est créé dans l'emplacement {@code slot} (0-8, -1 = emplacement
-	 * actuel) ; sinon, il doit déjà se trouver dans la barre d'accès rapide.
+	 * Puts {@code itemId} in hand. In creative, the item is created in slot {@code slot} (0-8, -1 = current
+	 * slot); otherwise, it must already be in the hotbar.
 	 */
 	public static JsonObject selectItem(Minecraft client, String itemId, int slot) {
 		LocalPlayer player = requirePlayer(client);
@@ -133,17 +134,17 @@ public final class BuildActions {
 
 		JsonObject result = new JsonObject();
 		result.addProperty("slot", slot);
-		result.addProperty("item", id.toString());
+		result.addProperty("item", Names.of(id));
 		result.addProperty("is_block", item instanceof BlockItem);
 		return result;
 	}
 
-	// --- Pose et destruction ----------------------------------------------------------------------
+	// --- Placing and breaking ---------------------------------------------------------------------
 
 	/**
-	 * Pose le bloc tenu en main à la position {@code pos} (qui doit être vide ou remplaçable, comme de l'herbe).
-	 * On « clique » directement sur la case visée : pas besoin d'un bloc voisin, on peut donc construire en l'air.
-	 * {@code face} est la face cliquée ; elle oriente certains blocs (bûches, dalles, escaliers).
+	 * Places the block held in hand at position {@code pos} (which must be empty or replaceable, like grass).
+	 * The target cell itself is "clicked": no neighbouring block is needed, so blocks can be placed in mid-air.
+	 * {@code face} is the clicked face; it orients some blocks (logs, slabs, stairs).
 	 */
 	public static JsonObject placeBlock(Minecraft client, BlockPos pos, Direction face, boolean look) {
 		LocalPlayer player = requirePlayer(client);
@@ -168,8 +169,8 @@ public final class BuildActions {
 		Vec3 hitLocation = Vec3.atCenterOf(pos);
 		if (look) {
 			player.lookAt(EntityAnchorArgument.Anchor.EYES, hitLocation);
-			// Le serveur oriente certains blocs (portes, escaliers, torches…) selon le regard du joueur : on lui envoie
-			// la nouvelle orientation tout de suite, sinon il utiliserait celle du tick précédent.
+			// The server orients some blocks (doors, stairs, torches…) from where the player looks: send it the
+			// new rotation right away, otherwise it would use the one from the previous tick.
 			player.connection.send(new ServerboundMovePlayerPacket.Rot(player.getYRot(), player.getXRot(), player.onGround()));
 		}
 		InteractionResult interaction = client.gameMode.useItemOn(player, InteractionHand.MAIN_HAND,
@@ -189,7 +190,7 @@ public final class BuildActions {
 		return result;
 	}
 
-	/** Casse instantanément le bloc à {@code pos} (mode construction / créatif uniquement). */
+	/** Instantly breaks the block at {@code pos} (build mode / creative only). */
 	public static JsonObject breakBlock(Minecraft client, BlockPos pos, boolean look) {
 		LocalPlayer player = requirePlayer(client);
 		if (!client.gameMode.getPlayerMode().isCreative()) {
@@ -222,7 +223,7 @@ public final class BuildActions {
 		return result;
 	}
 
-	// --- Utilitaires ------------------------------------------------------------------------------
+	// --- Utilities --------------------------------------------------------------------------------
 
 	public static LocalPlayer requirePlayer(Minecraft client) {
 		if (client.player == null || client.level == null || client.gameMode == null) {
@@ -240,11 +241,11 @@ public final class BuildActions {
 	}
 
 	public static String itemId(ItemStack stack) {
-		return BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+		return Names.of(BuiltInRegistries.ITEM.getKey(stack.getItem()));
 	}
 
 	private static String blockId(BlockState state) {
-		return BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
+		return Names.of(BuiltInRegistries.BLOCK.getKey(state.getBlock()));
 	}
 
 	private static JsonObject checkReach(LocalPlayer player, BlockPos pos, JsonObject result) {
@@ -256,7 +257,7 @@ public final class BuildActions {
 				String.format("Too far: %.1f blocks (max %.1f)", distance, player.blockInteractionRange()));
 	}
 
-	/** Résultat initialisé à « échec » ({@code successKey} = false), complété ensuite par l'action. */
+	/** Result initialised as "failed" ({@code successKey} = false), then completed by the action. */
 	private static JsonObject targetResult(BlockPos pos, String successKey) {
 		JsonObject result = new JsonObject();
 		result.addProperty(successKey, false);

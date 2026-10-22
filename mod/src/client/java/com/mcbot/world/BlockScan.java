@@ -3,6 +3,7 @@ package com.mcbot.world;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.mcbot.BotException;
+import com.mcbot.Names;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.commands.arguments.blocks.BlockStateParser;
 import net.minecraft.core.BlockPos;
@@ -15,15 +16,15 @@ import java.util.HashMap;
 import java.util.Map;
 
 /**
- * Lit les blocs d'une boîte du monde, tel que le client le connaît (chunks chargés, dans la distance d'affichage).
- * Doit être appelé sur le thread du jeu.
+ * Reads the blocks of a box of the world, as the client knows it (loaded chunks, within render distance).
+ * Must be called on the game thread.
  *
- * <p>Résultat : une palette de noms de blocs (dans le JSON) et, pour chaque bloc, son indice dans la palette
- * ({@code uint16} big-endian, dans la partie binaire). Les blocs sont rangés par x, puis y, puis z : le bloc
- * (x, y, z) est à l'indice {@code ((x - minX) * sizeY + (y - minY)) * sizeZ + (z - minZ)}.
+ * <p>Result: a palette of block names (in the JSON) and, for each block, its index in the palette
+ * ({@code uint16} big-endian, in the binary part). Blocks are ordered by x, then y, then z: block
+ * (x, y, z) is at index {@code ((x - minX) * sizeY + (y - minY)) * sizeZ + (z - minZ)}.
  */
 public final class BlockScan {
-	/** Nombre maximal de blocs par requête (2 Mo de données), de quoi lire 3 × 3 chunks entiers. */
+	/** Maximum number of blocks per request (2 MB of data), enough to read 3 × 3 whole chunks. */
 	public static final int MAX_BLOCKS = 1 << 20;
 
 	public record Result(JsonObject info, byte[] data) {
@@ -32,7 +33,7 @@ public final class BlockScan {
 	private BlockScan() {
 	}
 
-	/** Chunk entier (16 × hauteur du monde × 16) de coordonnées de chunk ({@code chunkX}, {@code chunkZ}). */
+	/** Whole chunk (16 × world height × 16) at chunk coordinates ({@code chunkX}, {@code chunkZ}). */
 	public static Result scanChunk(ClientLevel level, int chunkX, int chunkZ, boolean states) {
 		int x = SectionPos.sectionToBlockCoord(chunkX);
 		int z = SectionPos.sectionToBlockCoord(chunkZ);
@@ -41,8 +42,8 @@ public final class BlockScan {
 	}
 
 	/**
-	 * Boîte entre deux coins (inclus), limitée à la hauteur du monde. Avec {@code states}, la palette contient l'état
-	 * complet des blocs ({@code minecraft:oak_log[axis=y]}) au lieu de leur seul nom.
+	 * Box between two corners (included), limited to the world height. With {@code states}, the palette holds the full
+	 * state of the blocks ({@code oak_log[axis=y]}) instead of just their name.
 	 */
 	public static Result scan(ClientLevel level, BlockPos corner1, BlockPos corner2, boolean states) {
 		int minX = Math.min(corner1.getX(), corner2.getX());
@@ -67,7 +68,7 @@ public final class BlockScan {
 
 		Map<Object, Integer> indices = new HashMap<>();
 		JsonArray palette = new JsonArray();
-		ByteBuffer data = ByteBuffer.allocate((int) volume * 2); // big-endian par défaut
+		ByteBuffer data = ByteBuffer.allocate((int) volume * 2); // big-endian by default
 		BlockPos.MutableBlockPos pos = new BlockPos.MutableBlockPos();
 
 		for (int x = minX; x <= maxX; x++) {
@@ -79,8 +80,8 @@ public final class BlockScan {
 					if (index == null) {
 						index = palette.size();
 						indices.put(key, index);
-						palette.add(states ? BlockStateParser.serialize(state)
-								: BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString());
+						palette.add(states ? Names.shorten(BlockStateParser.serialize(state))
+								: Names.of(BuiltInRegistries.BLOCK.getKey(state.getBlock())));
 					}
 					data.putShort((short) index.intValue());
 				}

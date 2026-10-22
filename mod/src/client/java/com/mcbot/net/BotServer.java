@@ -19,15 +19,15 @@ import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Serveur TCP (127.0.0.1 uniquement) qui reçoit les commandes du programme Python.
+ * TCP server (127.0.0.1 only) receiving the commands of the Python program.
  *
- * <p>Protocole, entiers en big-endian :
+ * <p>Protocol, big-endian integers:
  * <ul>
- *   <li>requête : {@code uint32 longueur} + JSON UTF-8 ;</li>
- *   <li>réponse : {@code uint32 longueur} + JSON UTF-8, puis {@code uint32 longueur} + données binaires (0 si aucune) :
- *   image RGB brute ou blocs, selon le champ {@code payload} du JSON.</li>
+ *   <li>request: {@code uint32 length} + UTF-8 JSON;</li>
+ *   <li>response: {@code uint32 length} + UTF-8 JSON, then {@code uint32 length} + binary data (0 if none):
+ *   raw RGB image or blocks, depending on the {@code payload} field of the JSON.</li>
  * </ul>
- * Un seul client à la fois ; les requêtes sont traitées dans l'ordre, sur le thread du jeu.
+ * One client at a time; requests are handled in order, on the game thread.
  */
 public class BotServer implements Runnable {
 	private static final int MAX_MESSAGE_SIZE = 1 << 20;

@@ -12,7 +12,8 @@ Python never touches the game directly: everything goes through the mod, one req
 
 ```
 .
-├── README.md              Install & usage guide (French)
+├── README.md              Install & usage guide
+├── guidelines.md          Project-wide conventions and decisions
 ├── doc/                   This documentation
 ├── mod/                   Fabric mod (Gradle project)
 │   ├── build.gradle, gradle.properties   Versions of Minecraft, Fabric, Loom
@@ -58,6 +59,8 @@ therefore never touches the game; it only puts requests in the queue and waits.
 
 ## The Python client
 
+Full reference with parameters and examples: [python-api.md](python-api.md).
+
 | Piece | Role |
 |---|---|
 | `MinecraftClient` | Connection + one method per command (`ping`, `config`, `step`, `set_game_mode`, `set_flying`, `select_block`, `place_block`, `break_block`) and shortcuts (`forward`, `turn`, `look`, `jump`, `stop`). Images come back as numpy arrays `(height, width, 3)`. |
@@ -77,7 +80,7 @@ Big-endian integers, over TCP:
 
 Every response contains the player's state (position, motion, yaw/pitch, health, game mode, held item…) plus the
 result of the command. Errors come back as `{"ok": false, "error": "..."}` and are raised in Python as `McBotError`.
-The full list of commands and fields is in the [main README](../README.md#6-protocole-pour-info).
+The full list of commands and fields is in the [main README](../README.md#6-protocol-for-reference).
 
 A response carries at most one binary block, so a single request can't return an image *and* blocks.
 

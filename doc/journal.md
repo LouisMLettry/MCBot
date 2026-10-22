@@ -78,3 +78,30 @@ The project was started by Florian Desmons on Windows.
 - So that they can still `import mcbot` from that folder, `pyproject.toml` now declares `mcbot` as a package
   (build backend: hatchling), and `uv sync` installs it in the environment (editable: code changes apply directly).
 - Images are still saved in `python/frames/`.
+
+## 2026-10-22 — Python API reference
+
+- Added [python-api.md](python-api.md): conventions (ticks, coordinates, angles, errors) and a reference with
+  examples for `MinecraftClient`, `Builder` / `Phase` / `Placement` and `BlockVolume`.
+- Fixed: `with connect_with_retry(...) as mc:` opened a second connection, because `with` connected again.
+  It only worked because Python closed the first one immediately. `with` now keeps an existing connection.
+
+## 2026-10-22 — Guidelines: ticks and short block names
+
+- New [guidelines.md](../guidelines.md) at the root, gathering the project-wide assumptions and decisions.
+- **Durations are always in ticks.** `forward(seconds)`, `turn(degrees, seconds=0.5)` and
+  `look(pitch, seconds=0.5)` became `forward(ticks)`, `turn(degrees, ticks=10)` and `look(pitch, ticks=10)`;
+  `TICKS_PER_SECOND` is exported. Only waits outside the game (connection retry, waiting for a world, network
+  timeout) stay in seconds.
+- **Block and item names lose the `minecraft:` prefix** in everything the mod returns (`stone`,
+  `oak_log[axis=y]`); inputs still accept it. New `Names` class in the mod. Reason: shorter, and consistent with
+  how names are written in Python. Trade-off: this assumes vanilla Minecraft without other mods.
+
+## 2026-10-22 — Everything in English
+
+- The whole repository is now in English: code comments and docstrings (mod and Python), messages printed by
+  Python, `Builder.summary()`, the mod description, and the main README.
+- Names created by the scripts were translated too: the house picture is `frames/house.png` (was `maison.png`),
+  the demo frames are `01_start.png`, `02_forward_2s.png`… and the house phases are `Floor`,
+  `Walls, door and torch`, `Roof, level n`.
+- The README also gained the macOS commands next to the Windows ones.

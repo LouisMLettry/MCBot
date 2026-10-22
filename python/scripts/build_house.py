@@ -1,11 +1,11 @@
-"""Exemple de construction automatique : une petite maison posée au sol, devant le joueur.
+"""Automatic building example: a small house placed on the ground, in front of the player.
 
-Le script passe en mode construction (créatif), s'envole, pose le sol, les murs (avec fenêtres, porte et
-torche) puis un toit en pyramide, et enfin se recule pour prendre une photo de la maison (frames/maison.png).
+The script switches to build mode (creative), takes off, places the floor, the walls (with windows, a door and a
+torch), then a pyramid roof, and finally steps back to take a picture of the house (frames/house.png).
 
-Usage :
-    1. Lancer Minecraft avec le mod, entrer dans un monde solo (idéalement Superflat) et se tenir au sol,
-       face à un espace libre d'environ 10 × 10 blocs.
+Usage:
+    1. Start Minecraft with the mod, join a singleplayer world (ideally Superflat) and stand on the ground,
+       facing a free area of about 10 × 10 blocks.
     2. uv run python scripts/build_house.py
 """
 
@@ -22,9 +22,9 @@ from mcbot import Builder, Phase, Placement, connect_with_retry
 
 FRAMES_DIR = Path(__file__).resolve().parents[1] / "frames"
 
-SIZE = 7  # côté de la maison, en blocs
+SIZE = 7  # side of the house, in blocks
 WALL_HEIGHT = 3
-DISTANCE = 3  # distance entre le joueur et la façade
+DISTANCE = 3  # distance between the player and the front wall
 
 FLOOR = "stone_bricks"
 WALL = "oak_planks"
@@ -37,29 +37,29 @@ ROOF = "dark_oak_planks"
 Local = tuple[int, int, int]
 
 
-# --- Plan de la maison, en coordonnées locales --------------------------------------------------
-# x : de gauche à droite (vu du joueur), z : de la façade vers le fond, y : 0 = sol de la maison.
+# --- House plan, in local coordinates ----------------------------------------------------------
+# x: from left to right (seen from the player), z: from the front wall to the back, y: 0 = house floor.
 
 def is_window(x: int, z: int) -> bool:
     n, mid = SIZE - 1, (SIZE - 1) // 2
     if z == 0:
-        return x in (1, n - 1)  # façade : une fenêtre de chaque côté de la porte
+        return x in (1, n - 1)  # front: one window on each side of the door
     if z == n:
-        return abs(x - mid) <= 1  # fond : baie de 3 blocs
-    return x in (0, n) and abs(z - mid) <= 1  # côtés : baie de 3 blocs
+        return abs(x - mid) <= 1  # back: 3-block window
+    return x in (0, n) and abs(z - mid) <= 1  # sides: 3-block window
 
 
 def perimeter() -> list[tuple[int, int]]:
-    """Cases du tour de la maison, dans l'ordre (le constructeur fait le tour du mur)."""
+    """Cells around the house, in order (the builder walks around the wall)."""
     n = SIZE - 1
     return ([(x, 0) for x in range(SIZE)] + [(n, z) for z in range(1, SIZE)]
             + [(x, n) for x in range(n - 1, -1, -1)] + [(0, z) for z in range(n - 1, 0, -1)])
 
 
 def house_plan() -> list[tuple[str, tuple[int, float, int], list[tuple[Local, str]]]]:
-    """Phases de construction : (nom, point de vol (case x, hauteur des pieds, case z), blocs)."""
+    """Building phases: (name, flying spot (cell x, feet height, cell z), blocks)."""
     n, mid = SIZE - 1, (SIZE - 1) // 2
-    inside = (mid, 2.0, mid)  # au centre, en vol au-dessus du sol : tout le rez-de-chaussée est à portée
+    inside = (mid, 2.0, mid)  # in the centre, flying above the floor: the whole ground floor is within reach
 
     floor = [((x, 0, z), FLOOR) for z in range(SIZE) for x in range(SIZE)]
 
@@ -67,7 +67,7 @@ def house_plan() -> list[tuple[str, tuple[int, float, int], list[tuple[Local, st
     for y in range(1, WALL_HEIGHT + 1):
         for x, z in perimeter():
             if (x, z) == (mid, 0) and y <= 2:
-                continue  # ouverture de la porte
+                continue  # door opening
             if x in (0, n) and z in (0, n):
                 block = PILLAR
             elif y == 2 and is_window(x, z):
@@ -77,19 +77,19 @@ def house_plan() -> list[tuple[str, tuple[int, float, int], list[tuple[Local, st
             walls.append(((x, y, z), block))
     details = [((mid, 1, 0), DOOR), ((mid, 1, n - 1), LIGHT)]
 
-    phases = [("Sol", inside, floor), ("Murs, porte et torche", inside, walls + details)]
-    for i in range(mid + 1):  # toit en pyramide : 7×7, 5×5, 3×3, 1×1
+    phases = [("Floor", inside, floor), ("Walls, door and torch", inside, walls + details)]
+    for i in range(mid + 1):  # pyramid roof: 7×7, 5×5, 3×3, 1×1
         y = WALL_HEIGHT + 1 + i
         layer = [((x, y, z), ROOF) for z in range(i, SIZE - i) for x in range(i, SIZE - i)]
-        phases.append((f"Toit, niveau {i + 1}", (mid, y + 1.5, mid), layer))
+        phases.append((f"Roof, level {i + 1}", (mid, y + 1.5, mid), layer))
     return phases
 
 
-# --- Passage des coordonnées locales aux coordonnées du monde ------------------------------------
+# --- From local coordinates to world coordinates -----------------------------------------------
 
 @dataclass(frozen=True)
 class Frame:
-    """Repère de la maison : origine (coin avant gauche du sol), direction « devant » et « droite »."""
+    """Frame of reference of the house: origin (front-left corner of the floor), "forward" and "right" directions."""
 
     origin: tuple[int, int, int]
     forward: tuple[int, int]
@@ -101,18 +101,18 @@ class Frame:
                 oz + self.right[1] * x + self.forward[1] * z)
 
     def point(self, x: int, feet_y: float, z: int) -> tuple[float, float, float]:
-        """Centre de la case (x, z) à la hauteur de pieds feet_y."""
+        """Centre of cell (x, z) at feet height feet_y."""
         bx, by, bz = self.block(x, 0, z)
         return bx + 0.5, by + feet_y, bz + 0.5
 
     @property
     def yaw(self) -> float:
-        """Orientation (yaw Minecraft) pour regarder vers le fond de la maison."""
+        """Orientation (Minecraft yaw) to look towards the back of the house."""
         return math.degrees(math.atan2(-self.forward[0], self.forward[1]))
 
 
 def cardinal_direction(yaw: float) -> tuple[int, int]:
-    """Direction (dx, dz) la plus proche du regard. Minecraft : yaw 0 = sud (+z), 90 = ouest (-x)."""
+    """Direction (dx, dz) closest to where the player looks. Minecraft: yaw 0 = south (+z), 90 = west (-x)."""
     angle = math.radians(round(yaw / 90.0) * 90.0)
     return round(-math.sin(angle)), round(math.cos(angle))
 
@@ -132,10 +132,10 @@ def house_phases(frame: Frame) -> list[Phase]:
             for name, standpoint, blocks in house_plan()]
 
 
-# --- Script --------------------------------------------------------------------------------------
+# --- Script ------------------------------------------------------------------------------------
 
 def land(mc, max_ticks: int = 200) -> dict:
-    """Coupe le vol et attend d'être posé au sol."""
+    """Stops flying and waits until the player is on the ground."""
     info = mc.set_flying(False)
     for _ in range(max_ticks // 5):
         if info["on_ground"]:
@@ -148,7 +148,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=5555)
-    parser.add_argument("--delay", type=int, default=2, help="ticks d'attente après chaque bloc (défaut : 2)")
+    parser.add_argument("--delay", type=int, default=2, help="ticks to wait after each block (default: 2)")
     args = parser.parse_args()
 
     with connect_with_retry(args.host, args.port) as mc:
@@ -156,22 +156,22 @@ def main() -> None:
         mc.config(width=640, height=360)
 
         info = mc.set_build_mode(True)
-        print(f"Mode de jeu : {info['game_mode']}")
-        info = land(mc)  # le sol de la maison est calé sur la hauteur des pieds du joueur
+        print(f"Game mode: {info['game_mode']}")
+        info = land(mc)  # the house floor is aligned with the height of the player's feet
         if not info["on_ground"]:
-            raise SystemExit("Le joueur doit être au sol pour placer la maison.")
+            raise SystemExit("The player must be on the ground to place the house.")
 
         frame = frame_in_front_of(info["pos"], info["yaw"])
         phases = house_phases(frame)
         total = sum(len(phase.blocks) for phase in phases)
-        print(f"Maison de {SIZE}×{SIZE} : {total} blocs, coin avant gauche en {frame.origin}\n")
+        print(f"{SIZE}×{SIZE} house: {total} blocks, front-left corner at {frame.origin}\n")
 
         mc.set_flying(True)
         builder = Builder(mc, delay_ticks=args.delay)
         builder.build(phases)
-        print(f"\nConstruction terminée : {builder.summary()}")
+        print(f"\nBuilding finished: {builder.summary()}")
 
-        # On sort par le haut, on se place devant la façade et on prend une photo.
+        # Leave through the top, stand in front of the house and take a picture.
         mid = SIZE // 2
         mc.fly_to(*frame.point(mid, WALL_HEIGHT + 6, -9))
         mc.fly_to(*frame.point(mid, 3, -9))
@@ -183,14 +183,14 @@ def main() -> None:
         image, _ = mc.step(ticks=2, frame=True)
         mc.config(width=640, height=360, hide_gui=False)
         FRAMES_DIR.mkdir(exist_ok=True)
-        Image.fromarray(image).save(FRAMES_DIR / "maison.png")
-        print(f"Photo enregistrée : {FRAMES_DIR / 'maison.png'}")
+        Image.fromarray(image).save(FRAMES_DIR / "house.png")
+        print(f"Picture saved: {FRAMES_DIR / 'house.png'}")
 
 
 if __name__ == "__main__":
     try:
         main()
     except ConnectionError:
-        print("\nConnexion perdue : Minecraft a été fermé (ou le monde quitté brutalement).")
+        print("\nConnection lost: Minecraft was closed (or the world was left abruptly).")
     except KeyboardInterrupt:
-        print("\nConstruction interrompue.")
+        print("\nBuilding interrupted.")

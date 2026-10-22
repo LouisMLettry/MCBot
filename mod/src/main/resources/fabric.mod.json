@@ -3,7 +3,7 @@
 	"id": "mcbot",
 	"version": "${version}",
 	"name": "McBot",
-	"description": "Permet de piloter le joueur depuis un programme externe (Python) via un socket TCP local, et renvoie des images du jeu.",
+	"description": "Lets an external program (Python) drive the player through a local TCP socket, and sends back images of the game.",
 	"authors": [
 		"Florian Desmons"
 	],

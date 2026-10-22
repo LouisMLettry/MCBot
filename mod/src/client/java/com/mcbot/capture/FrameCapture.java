@@ -5,17 +5,17 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.Screenshot;
 
 /**
- * Capture l'image affichée par le jeu et la réduit à la taille demandée.
+ * Captures the image displayed by the game and shrinks it to the requested size.
  */
 public final class FrameCapture {
 	private FrameCapture() {
 	}
 
 	/**
-	 * Lit la dernière image rendue et la réduit par moyenne de blocs de pixels.
-	 * Doit être appelé sur le thread de rendu (c'est le cas pendant un tick client).
+	 * Reads the last rendered image and shrinks it by averaging blocks of pixels.
+	 * Must be called on the render thread (which is the case during a client tick).
 	 *
-	 * @return les pixels en RGB, ligne par ligne depuis le haut ({@code height * width * 3} octets)
+	 * @return the pixels in RGB, row by row from the top ({@code height * width * 3} bytes)
 	 */
 	public static byte[] capture(Minecraft client, int width, int height) {
 		try (NativeImage image = Screenshot.takeScreenshot(client.getMainRenderTarget())) {
@@ -34,7 +34,7 @@ public final class FrameCapture {
 					long r = 0, g = 0, b = 0;
 					for (int sy = y0; sy < y1; sy++) {
 						for (int sx = x0; sx < x1; sx++) {
-							// Malgré son nom, getPixelRGBA renvoie le format ABGR : rouge dans l'octet de poids faible.
+							// Despite its name, getPixelRGBA returns ABGR: red is in the least significant byte.
 							int pixel = image.getPixelRGBA(sx, sy);
 							r += pixel & 0xFF;
 							g += (pixel >> 8) & 0xFF;

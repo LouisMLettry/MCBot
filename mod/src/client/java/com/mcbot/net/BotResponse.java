@@ -3,8 +3,8 @@ package com.mcbot.net;
 import com.google.gson.JsonObject;
 
 /**
- * Réponse envoyée au programme Python : un objet JSON d'informations et, éventuellement, des données binaires
- * (image RGB brute ou blocs, selon le champ {@code payload} du JSON).
+ * Response sent to the Python program: a JSON object of information and, optionally, binary data
+ * (raw RGB image or blocks, depending on the {@code payload} field of the JSON).
  */
 public record BotResponse(JsonObject info, byte[] data) {
 	public static BotResponse error(String message) {

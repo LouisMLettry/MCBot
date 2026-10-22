@@ -1,4 +1,4 @@
-"""Construction automatique : pose une liste de blocs, phase par phase, en volant à portée de chaque phase."""
+"""Automatic building: places a list of blocks, phase by phase, flying within reach of each phase."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ HOTBAR_SIZE = 9
 
 @dataclass(frozen=True)
 class Placement:
-    """Un bloc à poser : position (coordonnées monde), identifiant du bloc et face cliquée."""
+    """A block to place: position (world coordinates), block identifier and clicked face."""
 
     pos: tuple[int, int, int]
     block: str
@@ -21,7 +21,7 @@ class Placement:
 
 @dataclass
 class Phase:
-    """Groupe de blocs posés depuis un même point (position des pieds) d'où ils sont tous à portée."""
+    """Group of blocks placed from the same spot (feet position), from which they are all within reach."""
 
     name: str
     standpoint: tuple[float, float, float]
@@ -29,7 +29,7 @@ class Phase:
 
 
 class Builder:
-    """Enchaîne les phases : vole jusqu'au point de chaque phase puis pose ses blocs un par un."""
+    """Runs the phases one after the other: flies to each phase's spot, then places its blocks one by one."""
 
     def __init__(self, mc: MinecraftClient, delay_ticks: int = 2, log: Callable[[str], None] = print):
         self.mc = mc
@@ -43,13 +43,13 @@ class Builder:
 
     def build(self, phases: list[Phase]) -> None:
         for phase in phases:
-            self.log(f"-- {phase.name} : {len(phase.blocks)} blocs")
+            self.log(f"-- {phase.name}: {len(phase.blocks)} blocks")
             self.mc.fly_to(*phase.standpoint)
             for placement in phase.blocks:
                 self.place(placement)
 
     def select(self, block: str) -> None:
-        """Met le bloc en main ; chaque nouveau bloc prend l'emplacement suivant de la barre d'accès rapide."""
+        """Puts the block in hand; each new block takes the next hotbar slot."""
         if block == self._held:
             return
         slot = self._slots.setdefault(block, len(self._slots) % HOTBAR_SIZE)
@@ -65,15 +65,15 @@ class Builder:
             self.already_there += 1
         else:
             self.failures.append((placement, info.get("message", info.get("reason", "?"))))
-            self.log(f"   ! {placement.block} en {placement.pos} : {info.get('message')}")
+            self.log(f"   ! {placement.block} at {placement.pos}: {info.get('message')}")
         if self.delay_ticks:
             self.mc.step(ticks=self.delay_ticks)
         return bool(info["placed"])
 
     def summary(self) -> str:
-        text = f"{self.placed} blocs posés"
+        text = f"{self.placed} blocks placed"
         if self.already_there:
-            text += f", {self.already_there} cases déjà occupées"
+            text += f", {self.already_there} cells already occupied"
         if self.failures:
-            text += f", {len(self.failures)} échecs"
+            text += f", {len(self.failures)} failures"
         return text
