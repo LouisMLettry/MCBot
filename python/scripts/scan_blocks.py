@@ -5,7 +5,7 @@ Pour chaque colonne autour du joueur, la carte montre le bloc le plus haut de la
 
 Usage :
     1. Lancer Minecraft avec le mod et entrer dans un monde solo.
-    2. uv run python scan_blocks.py [--radius 8]
+    2. uv run python scripts/scan_blocks.py [--radius 8]
 """
 
 from __future__ import annotations

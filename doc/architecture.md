@@ -27,15 +27,17 @@ Python never touches the game directly: everything goes through the mod, one req
 │           ├── capture/             FrameCapture (screenshots)
 │           └── world/               BlockScan (reads the blocks of a box of the world)
 └── python/
-    ├── pyproject.toml     Python version and dependencies (managed with uv)
+    ├── pyproject.toml     Python version, dependencies, and the `mcbot` package (managed with uv)
     ├── uv.lock            Exact versions installed by `uv sync`
     ├── mcbot/             The client library
     │   ├── client.py      MinecraftClient: protocol, movement, building, fly_to
     │   ├── builder.py     Builder / Phase / Placement: builds a list of blocks
     │   └── world.py       BlockVolume: blocks read from the world
-    ├── demo_movements.py  Demo: walk, turn, jump, sprint… and save frames
-    ├── build_house.py     Demo: build a small house, then take a picture
-    ├── scan_blocks.py     Demo: top-down map of the blocks around the player
+    ├── scripts/           Demo scripts, run with `uv run python scripts/<name>.py`
+    │   ├── demo_movements.py  Walk, turn, jump, sprint… and save frames
+    │   ├── build_house.py     Build a small house, then take a picture
+    │   └── scan_blocks.py     Top-down map of the blocks around the player
+    ├── frames/            Images saved by the scripts (not in Git)
     └── tests/             Tests with a fake mod (no Minecraft needed)
 ```
 

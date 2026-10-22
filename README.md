@@ -3,8 +3,8 @@
 Piloter son personnage Minecraft depuis Python, avec les images du jeu, en vue d'y brancher du ML plus tard.
 
 - `mod/` : mod **Fabric pour Minecraft 1.21.1** (côté client). Il ouvre un serveur TCP local (`127.0.0.1:5555`) qui reçoit des actions (avancer, tourner, sauter…) et renvoie l'état du joueur et, si demandé, une image du jeu.
-- `python/` : client Python (`mcbot`) et script de démonstration `demo_movements.py`.
-- `python/` : aussi `build_house.py` (construction) et `scan_blocks.py` (lecture des blocs autour du joueur).
+- `python/` : client Python (`mcbot`) et, dans `python/scripts/`, les scripts de démonstration : `demo_movements.py`
+  (déplacements), `build_house.py` (construction) et `scan_blocks.py` (lecture des blocs autour du joueur).
 - `doc/` : documentation du système (architecture, journal, feuille de route).
 
 ## 1. Prérequis
@@ -62,7 +62,7 @@ si la version du mod change, car elle fait partie du nom du fichier.
    ```powershell
    cd python
    uv sync
-   uv run python demo_movements.py
+   uv run python scripts/demo_movements.py
    ```
    `uv sync` crée l'environnement `.venv` et installe les dépendances (à refaire après une mise à jour de
    `pyproject.toml`) ; `uv run` lance la commande dans cet environnement.
@@ -98,7 +98,7 @@ Le mod sait aussi :
 Se tenir **au sol** dans un monde solo (Superflat idéal), face à un espace libre, puis :
 ```powershell
 cd python
-uv run python build_house.py
+uv run python scripts/build_house.py
 ```
 Le personnage passe en créatif, s'envole, pose le sol, fait le tour des murs (fenêtres, porte, torche), construit un toit
 en pyramide, puis recule pour photographier la maison (`python/frames/maison.png`). Environ 200 blocs, ~1 minute.
@@ -137,7 +137,7 @@ disponibles. Pas besoin des cheats.
 Dans un monde, puis :
 ```powershell
 cd python
-uv run python scan_blocks.py --radius 8
+uv run python scripts/scan_blocks.py --radius 8
 ```
 Affiche une carte vue de dessus autour du joueur (le bloc le plus haut de chaque colonne) et le nombre de blocs de
 chaque sorte.

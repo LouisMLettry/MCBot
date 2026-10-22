@@ -19,7 +19,7 @@ project, see the [main README](../README.md) (in French).
 ```mermaid
 flowchart LR
     subgraph Python["Python (python/)"]
-        S["Scripts<br/>demo_movements.py<br/>build_house.py<br/>scan_blocks.py"] --> B["Builder"]
+        S["scripts/<br/>demo_movements.py<br/>build_house.py<br/>scan_blocks.py"] --> B["Builder"]
         S --> C["MinecraftClient"]
         B --> C
     end

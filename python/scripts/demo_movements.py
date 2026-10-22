@@ -2,7 +2,7 @@
 
 Usage :
     1. Lancer Minecraft avec le mod et entrer dans un monde solo (idéalement Superflat).
-    2. python demo_movements.py
+    2. uv run python scripts/demo_movements.py
 """
 
 from __future__ import annotations
@@ -14,7 +14,7 @@ from PIL import Image
 
 from mcbot import connect_with_retry
 
-FRAMES_DIR = Path(__file__).parent / "frames"
+FRAMES_DIR = Path(__file__).resolve().parents[1] / "frames"
 
 
 def report(label: str, info: dict, image=None) -> None:

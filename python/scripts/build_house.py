@@ -6,7 +6,7 @@ torche) puis un toit en pyramide, et enfin se recule pour prendre une photo de l
 Usage :
     1. Lancer Minecraft avec le mod, entrer dans un monde solo (idéalement Superflat) et se tenir au sol,
        face à un espace libre d'environ 10 × 10 blocs.
-    2. python build_house.py
+    2. uv run python scripts/build_house.py
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from PIL import Image
 
 from mcbot import Builder, Phase, Placement, connect_with_retry
 
-FRAMES_DIR = Path(__file__).parent / "frames"
+FRAMES_DIR = Path(__file__).resolve().parents[1] / "frames"
 
 SIZE = 7  # côté de la maison, en blocs
 WALL_HEIGHT = 3

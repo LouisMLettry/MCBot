@@ -71,3 +71,10 @@ The project was started by Florian Desmons on Windows.
 - Protocol: the binary part of a response is no longer always an image; the JSON field `payload` (`frame` or
   `blocks`) says what it is. In Java, `BotResponse.frame` was renamed `data`.
 - Checked: the mod compiles, Python tests pass (22), and `scan_blocks.py` works in the game.
+
+## 2026-10-22 — Scripts folder
+
+- The demo scripts moved to `python/scripts/`; run them with `uv run python scripts/<name>.py` from `python/`.
+- So that they can still `import mcbot` from that folder, `pyproject.toml` now declares `mcbot` as a package
+  (build backend: hatchling), and `uv sync` installs it in the environment (editable: code changes apply directly).
+- Images are still saved in `python/frames/`.
