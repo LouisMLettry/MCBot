@@ -1,0 +1,24 @@
+{
+	"schemaVersion": 1,
+	"id": "mcbot",
+	"version": "${version}",
+	"name": "McBot",
+	"description": "Permet de piloter le joueur depuis un programme externe (Python) via un socket TCP local, et renvoie des images du jeu.",
+	"authors": [
+		"Florian Desmons"
+	],
+	"license": "MIT",
+	"icon": "assets/mcbot/icon.png",
+	"environment": "client",
+	"entrypoints": {
+		"client": [
+			"com.mcbot.McBotClient"
+		]
+	},
+	"depends": {
+		"fabricloader": ">=0.19.5",
+		"minecraft": "~1.21.1",
+		"java": ">=21",
+		"fabric-api": "*"
+	}
+}
