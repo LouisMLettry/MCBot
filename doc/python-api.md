@@ -122,6 +122,8 @@ unlimited blocks, flying, instant breaking.
 | `place_block(x, y, z, face="up", look=True, replace=False)` | Places the held block in cell `(x, y, z)`. See below. |
 | `break_block(x, y, z, look=True)` | Breaks the block instantly (creative only). Returns `info` with `broken` (bool), `block`, and on failure `reason` (`empty`, `out_of_reach`, `rejected`) and `message`. |
 | `fly_to(x, y, z, tolerance=0.75, vertical_tolerance=0.35, max_steps=600, face_target=True)` | Flies until the feet are at `(x, y, z)`, then stops and releases the keys. See below. |
+| `set_block(x, y, z, block)` | Writes an exact block state, e.g. `"oak_stairs[facing=east,half=top]"`. See below. Returns `info` with `block`: the full state now in the cell. |
+| `set_blocks(blocks)` | Same for many blocks, given as `((x, y, z), state)` pairs, written in order. Sent in batches of `SET_BLOCKS_BATCH` (4096). Returns `info` with `blocks`: the full state written for each entry. |
 
 **`place_block`:**
 - No neighbouring block is needed: you can build in mid-air.
@@ -139,6 +141,16 @@ unlimited blocks, flying, instant breaking.
   `already_there` / `occupied`), `replaced` when a block was broken, and on failure `reason` and `message`.
   Possible reasons: `already_there`, `occupied`, `out_of_reach`, `no_block_selected`, `player_in_the_way`,
   `rejected`.
+
+**`set_block` / `set_blocks`:** unlike `place_block`, which acts like a player placing the block in hand, these
+write a block state directly, like the `/setblock` command:
+- singleplayer world only, but no cheats needed, any game mode, any distance (within the world's height);
+- blocks are written **exactly as given**: neighbouring blocks are not updated, so a torch written before its wall
+  stays in place, and a fence doesn't connect to a new neighbour on its own; give connections in the state if
+  needed (`oak_fence[east=true]`);
+- properties left out take their default value (`"oak_stairs"` → `oak_stairs[facing=north,half=bottom,...]`);
+- every state of a batch is checked first: one invalid state (`McBotError`) means nothing of that batch is written;
+- the call returns once the game client shows the new blocks, so `get_blocks` right after sees them.
 
 **`fly_to`:** enables flying if needed (so creative is required). At each step it predicts where the player would
 stop if all keys were released (flight keeps momentum) and presses the keys that bring that point onto the target;

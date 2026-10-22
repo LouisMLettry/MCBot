@@ -26,7 +26,7 @@ Python never touches the game directly: everything goes through the mod, one req
 │           ├── net/                 BotServer (TCP), BotResponse
 │           ├── build/               BuildActions (game mode, flying, blocks)
 │           ├── capture/             FrameCapture (screenshots)
-│           └── world/               BlockScan (reads the blocks of a box of the world)
+│           └── world/               BlockScan (reads a box of the world), BlockWriter (writes exact states)
 └── python/
     ├── pyproject.toml     Python version, dependencies, and the `mcbot` package (managed with uv)
     ├── uv.lock            Exact versions installed by `uv sync`
@@ -52,6 +52,7 @@ Python never touches the game directly: everything goes through the mod, one req
 | `BotController` | Runs on the **game thread**, once per tick. Takes the next request from a queue and executes it. A `step` holds keys for N ticks (20 ticks = 1 s) and spreads the camera rotation over them. Also prevents the game from pausing while a script is connected, and keeps the player flying if the script asked for it. |
 | `BuildActions` | Building helpers: switch game mode through the singleplayer server (works without cheats), fly, put a block in hand, place a block (no neighbour needed — you can build in the air; optionally replacing the block already there), break a block. |
 | `FrameCapture` | Takes a screenshot of what the game rendered and shrinks it to the requested size (e.g. 160×90), as raw RGB bytes. |
+| `BlockWriter` | Writes exact block states through the singleplayer server (like `/setblock`, without cheats), without updating neighbouring blocks. The controller answers once the client shows them. |
 | `BlockScan` | Reads the blocks of a box (two corners, a whole chunk, or a cube around the player) from the game client's copy of the world. Only loaded chunks can be read. Returns a palette of block names plus one number per block. Limited to 1,048,576 blocks per request. |
 
 Why the queue and the game thread: Minecraft's state may only be changed from its own thread. The TCP thread

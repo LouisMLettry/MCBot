@@ -7,6 +7,7 @@ import com.mcbot.build.BuildActions;
 import com.mcbot.capture.FrameCapture;
 import com.mcbot.net.BotResponse;
 import com.mcbot.world.BlockScan;
+import com.mcbot.world.BlockWriter;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.Options;
 import net.minecraft.client.gui.screens.PauseScreen;
@@ -16,13 +17,17 @@ import net.minecraft.core.Direction;
 import net.minecraft.util.Mth;
 import net.minecraft.world.entity.player.Abilities;
 import net.minecraft.world.level.GameType;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.function.BooleanSupplier;
+import java.util.function.Supplier;
 
 /**
  * Runs the received commands on the game thread, one client tick at a time.
@@ -34,13 +39,16 @@ import java.util.function.BooleanSupplier;
  *
  * <p>Building commands ({@code game_mode}, {@code fly}, {@code select_block}, {@code place_block},
  * {@code break_block}) run immediately; {@code game_mode} answers once the client has received the change.
+ * {@code set_blocks} writes exact block states through the singleplayer server and answers once the client shows
+ * them.
  *
  * <p>The {@code blocks} command returns the blocks of a box of the world (see {@link BlockScan}), read at the same tick
  * as the player's state.
  */
 public class BotController {
 	private static final int MAX_TICKS_PER_STEP = 20 * 60;
-	private static final int GAME_MODE_TIMEOUT_TICKS = 100;
+	/** Maximum wait for a change to be applied (game mode, written blocks): 5 s. */
+	private static final int WAIT_TIMEOUT_TICKS = 100;
 	private static final int MIN_FRAME_SIZE = 16;
 	private static final int MAX_FRAME_SIZE = 1024;
 
@@ -76,13 +84,15 @@ public class BotController {
 	/** Turns flying back on if it was turned off (double jump press, landing then jumping…). */
 	private boolean keepFlying;
 
-	// Current command (step, or waiting for a game mode change)
+	// Current command (step, or waiting for a change to be applied: game mode, written blocks)
 	private BotRequest current;
 	private int ticksLeft;
 	private float yawPerTick;
 	private float pitchPerTick;
 	private boolean captureFrame;
 	private BooleanSupplier waitCondition;
+	private Supplier<BotResponse> waitResponse;
+	private String waitTimeoutMessage;
 
 	/** Called from the network thread: the command will be handled at the next game tick. */
 	public CompletableFuture<BotResponse> submit(JsonObject json) {
@@ -115,9 +125,9 @@ public class BotController {
 
 		if (waitCondition != null) {
 			if (waitCondition.getAsBoolean()) {
-				finish(buildResponse(client, null));
+				finish(waitResponse.get());
 			} else if (--ticksLeft <= 0) {
-				finish(BotResponse.error("Timed out waiting for the game mode change"));
+				finish(BotResponse.error(waitTimeoutMessage));
 			}
 			return;
 		}
@@ -153,6 +163,7 @@ public class BotController {
 				}
 				case "step" -> beginStep(client, request);
 				case "game_mode" -> beginGameMode(client, request);
+				case "set_blocks" -> beginSetBlocks(client, request);
 				case "fly" -> {
 					LocalPlayer player = BuildActions.requirePlayer(client);
 					prepareForControl(client);
@@ -230,9 +241,53 @@ public class BotController {
 		}
 
 		BuildActions.requestGameMode(client, mode);
+		waitFor(request, () -> BuildActions.isGameModeApplied(client, mode), () -> buildResponse(client, null),
+				"Timed out waiting for the game mode change");
+	}
+
+	/**
+	 * Writes exact block states: {@code blocks} = [[x, y, z, "oak_stairs[facing=east]"], …]. Every state is parsed
+	 * before anything is written; the response comes once the client shows the new blocks.
+	 */
+	private void beginSetBlocks(Minecraft client, BotRequest request) {
+		BuildActions.requirePlayer(client);
+		JsonElement element = request.json().get("blocks");
+		if (element == null || !element.isJsonArray()) {
+			throw new BotException("Missing or invalid parameter: 'blocks' (expected [[x, y, z, \"block\"], ...])");
+		}
+		List<BlockPos> positions = new ArrayList<>();
+		List<BlockState> states = new ArrayList<>();
+		for (JsonElement entry : element.getAsJsonArray()) {
+			JsonArray values = entry.getAsJsonArray();
+			if (values.size() != 4) {
+				throw new BotException("Invalid block entry: " + entry + " (expected [x, y, z, \"block\"])");
+			}
+			positions.add(new BlockPos(values.get(0).getAsInt(), values.get(1).getAsInt(), values.get(2).getAsInt()));
+			states.add(BlockWriter.parse(values.get(3).getAsString()));
+		}
+		prepareForControl(client);
+
+		CompletableFuture<Void> written = BlockWriter.write(client, positions, states);
+		waitFor(request,
+				() -> written.isDone() && (written.isCompletedExceptionally() || BlockWriter.isVisible(client.level, positions, states)),
+				() -> {
+					if (written.isCompletedExceptionally()) {
+						return BotResponse.error("The server failed to write the blocks: " + written.exceptionNow());
+					}
+					JsonObject result = new JsonObject();
+					result.add("blocks", BlockWriter.names(states));
+					return buildResponse(client, result);
+				},
+				"Timed out waiting for the blocks to be written");
+	}
+
+	/** Answers {@code request} with {@code response} once {@code condition} holds, checked at every tick. */
+	private void waitFor(BotRequest request, BooleanSupplier condition, Supplier<BotResponse> response, String timeoutMessage) {
 		current = request;
-		ticksLeft = GAME_MODE_TIMEOUT_TICKS;
-		waitCondition = () -> BuildActions.isGameModeApplied(client, mode);
+		ticksLeft = WAIT_TIMEOUT_TICKS;
+		waitCondition = condition;
+		waitResponse = response;
+		waitTimeoutMessage = timeoutMessage;
 	}
 
 	/**
@@ -284,6 +339,8 @@ public class BotController {
 		current = null;
 		captureFrame = false;
 		waitCondition = null;
+		waitResponse = null;
+		waitTimeoutMessage = null;
 		request.future().complete(response);
 	}
 

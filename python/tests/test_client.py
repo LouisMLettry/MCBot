@@ -107,3 +107,15 @@ def test_with_keeps_existing_connection(client):
         assert mc is client and mc._sock is sock
         assert mc.ping()["in_world"] is True
     assert client._sock is None
+
+
+def test_set_block_and_batches(client, monkeypatch):
+    info = client.set_block(1.5, -60, -2.2, "minecraft:oak_stairs[facing=east]")
+    assert client.fake.requests[-1] == {"type": "set_blocks", "blocks": [[1, -60, -3, "minecraft:oak_stairs[facing=east]"]]}
+    assert info["block"] == "oak_stairs[facing=east]" and "blocks" not in info
+    monkeypatch.setattr("mcbot.client.SET_BLOCKS_BATCH", 2)
+    info = client.set_blocks(((x, -60, 0), "stone") for x in range(5))
+    assert [len(r["blocks"]) for r in client.fake.requests[-3:]] == [2, 2, 1]
+    assert info["blocks"] == ["stone"] * 5 and client.fake.world[(4, -60, 0)] == "stone"
+    with pytest.raises(ValueError):
+        client.set_blocks([])

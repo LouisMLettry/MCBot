@@ -7,7 +7,7 @@ import math
 import socket
 import struct
 import time
-from typing import Any, Callable
+from typing import Any, Callable, Iterable
 
 import numpy as np
 
@@ -19,6 +19,7 @@ TICKS_PER_SECOND = 20
 
 ACTION_KEYS = ("forward", "back", "left", "right", "jump", "sprint", "sneak", "attack", "use")
 FACES = ("up", "down", "north", "south", "east", "west")
+SET_BLOCKS_BATCH = 4096  # blocks per set_blocks request (the mod accepts requests up to 1 MB)
 
 # Creative flight physics: every tick, horizontal speed is multiplied by 0.91 and vertical speed by 0.6.
 # Distance travelled before stopping if everything is released = speed × 1 / (1 - friction).
@@ -179,6 +180,33 @@ class MinecraftClient:
         failure, ``reason`` (empty, out_of_reach, rejected) and ``message``."""
         return self._request({"type": "break_block", "x": math.floor(x), "y": math.floor(y), "z": math.floor(z),
                               "look": look})[1]
+
+    def set_block(self, x: float, y: float, z: float, block: str) -> dict[str, Any]:
+        """Writes an exact block state in cell (x, y, z), e.g. ``"oak_stairs[facing=east,half=bottom]"``.
+
+        Works in a singleplayer world, without cheats, at any distance and in any game mode. The block is written
+        as given: neighbouring blocks are not updated. Unspecified properties take their default value.
+        Returns ``info`` with ``block``: the full state now in the cell.
+        """
+        info = self.set_blocks([((x, y, z), block)])
+        info["block"] = info.pop("blocks")[0]
+        return info
+
+    def set_blocks(self, blocks: Iterable[tuple[tuple[float, float, float], str]]) -> dict[str, Any]:
+        """Writes many exact block states, given as ``((x, y, z), state)`` pairs, in order.
+
+        Sent in batches of ``SET_BLOCKS_BATCH``; each batch is checked completely before anything is written.
+        Returns the ``info`` of the last batch, with ``blocks``: the full state written for every entry.
+        """
+        entries = [[*_block_pos(pos), block] for pos, block in blocks]
+        if not entries:
+            raise ValueError("No blocks to write")
+        written: list[str] = []
+        for start in range(0, len(entries), SET_BLOCKS_BATCH):
+            info = self._request({"type": "set_blocks", "blocks": entries[start:start + SET_BLOCKS_BATCH]})[1]
+            written += info["blocks"]
+        info["blocks"] = written
+        return info
 
     def fly_to(self, x: float, y: float, z: float, tolerance: float = 0.75, vertical_tolerance: float = 0.35,
                max_steps: int = 600, face_target: bool = True) -> dict[str, Any]:

@@ -121,3 +121,19 @@ The project was started by Florian Desmons on Windows.
     block — before, both were counted together, so wrong blocks went unnoticed), plus `replaced` and `removed`.
 - Tests: the fake mod moved to `tests/conftest.py` and now remembers placed blocks; new `tests/test_builder.py`.
 - Checked: the mod compiles, 27 Python tests pass. **Not yet tested in the game.**
+
+## 2026-10-22 — Writing exact block states
+
+- New mod command `set_blocks` and Python methods `set_block(x, y, z, state)` / `set_blocks([...])`: write exact
+  block states such as `oak_stairs[facing=east,half=top]` through the singleplayer server, like `/setblock`.
+- Why: `place_block` acts like a player, so orientations (stairs, logs, doors) depend on where the player looks and
+  can't be reproduced exactly; and it needs the player within reach.
+- Decisions:
+  - a **list** of blocks per request (batches of 4096 in Python), so writing a whole structure isn't hundreds of
+    round trips;
+  - blocks are written **as given, without updating neighbours**, so the result doesn't depend on the order
+    (a torch written before its wall stays);
+  - all states of a batch are parsed before anything is written;
+  - the response comes once the game client shows the blocks, so a `get_blocks` right after is consistent.
+- The controller's waiting logic (used by `game_mode`) was generalised for this.
+- Checked: the mod compiles, 28 Python tests pass. **Not yet tested in the game.**

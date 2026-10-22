@@ -141,6 +141,17 @@ with MinecraftClient() as mc:
   `red_wool`…); the prefix is accepted but never appears in responses (see [guidelines.md](guidelines.md)).
 - The player looks at each block it places (can be disabled with `look=False`).
 
+### Writing exact block states
+`place_block` places the block in hand like a player would, so orientation depends on where the player looks.
+To write an exact block state instead, at any distance and without flying:
+```python
+mc.set_block(12, -60, 4, "oak_stairs[facing=east,half=top]")
+mc.set_blocks([((x, -60, 8), "oak_log[axis=x]") for x in range(5)])   # many blocks, sent in batches
+```
+This works in a singleplayer world, without cheats, in any game mode. Blocks are written exactly as given:
+neighbouring blocks are not updated (a torch written before its wall stays in place, a fence doesn't connect to a
+new neighbour on its own). Unspecified properties take their default value.
+
 ## 5. Reading the world's blocks
 
 The mod reads blocks as the game knows them: only **loaded chunks** (within render distance) are
@@ -193,6 +204,7 @@ Big-endian integers, one request → one response:
 | `select_block` | `block`, `slot` (0–8, optional) | Puts the block in hand (created in creative, looked up in the hotbar otherwise). |
 | `place_block` | `x`, `y`, `z`, `face` (default `up`), `look` (default `true`), `replace` (default `false`) | Places the held block → `placed`, `reason`, `message`, `block`, `replaced`. |
 | `break_block` | `x`, `y`, `z`, `look` | Breaks the block (creative) → `broken`, `reason`, `block`. |
+| `set_blocks` | `blocks`: [[x, y, z, "state"], …] | Writes exact block states (singleplayer); answers once the client shows them → `blocks` (full states written). |
 | `blocks` | `min` and `max` [x, y, z], **or** `chunk` [cx, cz], **or** `radius`; `states` (default `false`) | Blocks of the box → `origin` [x, y, z], `shape` [sx, sy, sz], `palette`, and the indices in binary. |
 
 Response: `ok`, `error`, `tick`, `paused`, `screen`, `in_world`, `pos` [x, y, z], `motion` [vx, vy, vz] (blocks/tick), `yaw`, `pitch`, `on_ground`, `health`, `flying`, `may_fly`, `game_mode`, `reach`, `selected_slot`, `held_item`, `frame_width`, `frame_height`.
