@@ -45,7 +45,7 @@ The repository holds the mod (`mod/`) and the Python package (`python/`).
 ## Start Minecraft with the mod
 
 The simplest way is **development mode**: Gradle downloads Minecraft 1.21.1, Fabric and the mod's dependencies,
-then starts the game with the mod already loaded. No Minecraft account is needed: it uses an offline player.
+then starts the game with the mod already loaded.
 
 === "Windows"
 
