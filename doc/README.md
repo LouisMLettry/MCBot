@@ -4,14 +4,14 @@ Craftilot lets a Python program drive a Minecraft player: it sends actions (move
 and gets back the player's state and, on request, an image of the game. The long-term goal is to plug machine
 learning on top of it.
 
-This folder describes the system as a whole and keeps track of what has been done. For installing and using the
-project, see the [main README](../README.md). Project-wide conventions and decisions (units, block
+This folder describes the system as a whole and keeps track of what has been done, for the people who develop
+it. For installing and using the project, see the [user documentation](https://louismlettry.github.io/Craftilot/) (sources in `python/docs/`)
+and the [main README](../README.md). Project-wide conventions and decisions (units, block
 names, protocol rules…) are in [guidelines.md](../guidelines.md).
 
 | Document | Contents |
 |---|---|
 | [architecture.md](architecture.md) | The two components (Fabric mod, Python client), how they talk, and where things live. |
-| [python-api.md](python-api.md) | Reference of the Python package: `MinecraftClient`, `Builder`, `BlockVolume`, with examples. |
 | [journal.md](journal.md) | What has been done so far, in chronological order, with the decisions taken. |
 | [roadmap.md](roadmap.md) | Planned work, open questions and ideas. |
 | [troubleshooting.md](troubleshooting.md) | Problems already met and how they were solved. |

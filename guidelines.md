@@ -66,8 +66,9 @@ The history behind each decision is in [doc/journal.md](doc/journal.md).
 - The mod only touches the game **on the game thread**: the network thread queues requests and waits.
 - Keys held by `step` **stay pressed** until the next command; disconnecting releases everything.
 
-When adding a command: document it in the README protocol table and in [doc/python-api.md](doc/python-api.md),
-and teach it to the fake mod in `python/tests/test_client.py`.
+When adding a command: document it in the README protocol table, in the user docs (docstring, the protocol page
+`python/docs/reference/protocol.md` and the guide it belongs to), and teach it to the fake mod in
+`python/tests/conftest.py`.
 
 ## Python
 
@@ -91,6 +92,14 @@ and teach it to the fake mod in `python/tests/test_client.py`.
 ## Documentation
 
 - After a meaningful change, add a dated entry to [doc/journal.md](doc/journal.md), and update
-  [doc/architecture.md](doc/architecture.md), [doc/python-api.md](doc/python-api.md),
-  [doc/roadmap.md](doc/roadmap.md) or [doc/troubleshooting.md](doc/troubleshooting.md) when they are affected.
+  [doc/architecture.md](doc/architecture.md), [doc/roadmap.md](doc/roadmap.md) or
+  [doc/troubleshooting.md](doc/troubleshooting.md) when they are affected.
+- **Two audiences, two places.** `doc/` is for the people who develop the project (architecture, journal,
+  roadmap). The **user documentation** is for students using `mcbot` in their projects: a MkDocs site in
+  `python/docs/`, published on GitHub Pages (https://louismlettry.github.io/Craftilot/). Internal details stay out of it.
+- **The API reference is generated from the docstrings** (mkdocstrings). Every public class, method and constant
+  gets a Google-style docstring (`Args:`, `Returns:`, `Raises:`, `Example:`). Any change to the Python API
+  updates its docstring and the guide pages that show it, in the same change.
+- Check the site with `uv run --group docs mkdocs build --strict` (in `python/`): broken links and references
+  fail the build. Preview with `uv run --group docs mkdocs serve`.
 - When a project-wide rule changes, update this file.

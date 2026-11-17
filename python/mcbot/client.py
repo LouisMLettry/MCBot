@@ -15,13 +15,20 @@ from .entities import Entity
 from .world import BlockVolume
 
 DEFAULT_HOST = "127.0.0.1"
+"""Address of the mod. It only listens on the local machine."""
 DEFAULT_PORT = 5555
+"""Port of the mod. Can be changed by starting the game with `-Dmcbot.port=XXXX`."""
 TICKS_PER_SECOND = 20
+"""Game ticks per second. Every duration in the game is given in ticks."""
 
 ACTION_KEYS = ("forward", "back", "left", "right", "jump", "sprint", "sneak", "attack", "use")
+"""Keys that [`step`][mcbot.MinecraftClient.step] can hold."""
 FACES = ("up", "down", "north", "south", "east", "west")
-SET_BLOCKS_BATCH = 4096  # blocks per set_blocks request (the mod accepts requests up to 1 MB)
+"""Faces accepted by [`place_block`][mcbot.MinecraftClient.place_block]."""
+SET_BLOCKS_BATCH = 4096
+"""Blocks per request sent by [`set_blocks`][mcbot.MinecraftClient.set_blocks] (the mod accepts up to 1 MB)."""
 ENTITY_QUERY_KEYS = ("radius", "min", "max", "types", "limit", "visibility")
+"""Options accepted in the `entities` argument of [`step`][mcbot.MinecraftClient.step]."""
 
 # Creative flight physics: every tick, horizontal speed is multiplied by 0.91 and vertical speed by 0.6.
 # Distance travelled before stopping if everything is released = speed × 1 / (1 - friction).
@@ -31,15 +38,42 @@ MAX_TURN_PER_STEP = 45.0
 
 
 class McBotError(RuntimeError):
-    """Error returned by the mod (for example: no world loaded)."""
+    """The mod refused a command.
+
+    Raised for invalid requests and impossible situations: no world loaded (every command but
+    [`ping`][mcbot.MinecraftClient.ping]), unknown block, chunk not loaded, box too large, timeout while waiting for
+    the game… Actions that can normally fail in the game, such as placing
+    a block where another one already is, are not errors: they return a result with a `reason` instead.
+    """
 
 
 class MinecraftClient:
     """Drives the Minecraft player through the McBot mod.
 
-    Each ``step`` holds the requested keys for ``ticks`` ticks (20 ticks = 1 s)
-    then returns ``(image, info)``. Keys stay pressed until the next command:
-    call ``stop()`` to release everything.
+    The mod accepts one connection at a time. Each command is answered with the player's state, the `info`
+    dictionary (see [The info dictionary][info-dictionary]), read at the tick the command finished.
+
+    Keys held by [`step`][mcbot.MinecraftClient.step] stay pressed until the next command:
+    call [`stop`][mcbot.MinecraftClient.stop] to release them. Closing the connection releases them too.
+
+    Args:
+        host: Address of the mod.
+        port: Port of the mod.
+        timeout: Network timeout in seconds, for connecting and for each answer. The longest command, a 1-minute
+            step, fits in the default.
+
+    Example:
+        ```python
+        from mcbot import MinecraftClient
+
+        with MinecraftClient() as mc:
+            image, info = mc.forward(20, frame=True)
+            print(info["pos"])
+        ```
+
+    Attributes:
+        frame_width: Width of the images returned, in pixels, as last set by [`config`][mcbot.MinecraftClient.config].
+        frame_height: Height of the images returned, in pixels.
     """
 
     def __init__(self, host: str = DEFAULT_HOST, port: int = DEFAULT_PORT, timeout: float = 130.0):
@@ -53,11 +87,21 @@ class MinecraftClient:
     # --- Connection ----------------------------------------------------------------------------
 
     def connect(self) -> "MinecraftClient":
+        """Opens the connection to the mod.
+
+        Returns:
+            The client itself, so that `mc = MinecraftClient().connect()` works.
+
+        Raises:
+            OSError: Minecraft is not running, or the mod is not loaded. See also
+                [`connect_with_retry`][mcbot.connect_with_retry].
+        """
         self._sock = socket.create_connection((self.host, self.port), timeout=self.timeout)
         self._sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         return self
 
     def close(self) -> None:
+        """Closes the connection. The mod then releases all keys."""
         if self._sock is not None:
             self._sock.close()
             self._sock = None
@@ -72,10 +116,23 @@ class MinecraftClient:
     # --- Protocol commands ---------------------------------------------------------------------
 
     def ping(self) -> dict[str, Any]:
+        """Reads the player's state without doing anything.
+
+        Returns:
+            The `info` dictionary.
+        """
         return self._request({"type": "ping"})[1]
 
     def wait_for_world(self, poll_seconds: float = 3.0, log: Callable[[str], None] = print) -> dict[str, Any]:
-        """Waits until the player is in a world (so the script can be started from the main menu)."""
+        """Waits until the player is in a world, so that a script can be started from the main menu.
+
+        Args:
+            poll_seconds: Time between two checks, in seconds.
+            log: Called with a message at each check while waiting.
+
+        Returns:
+            The `info` dictionary, once a world is loaded.
+        """
         info = self.ping()
         while not info["in_world"]:
             log("  Waiting: join a singleplayer world...")
@@ -84,7 +141,19 @@ class MinecraftClient:
         return info
 
     def config(self, width: int, height: int, hide_gui: bool | None = None) -> dict[str, Any]:
-        """Sets the size of the returned images (and optionally hides the interface, like F1)."""
+        """Sets the size of the images returned and, optionally, hides the interface.
+
+        The whole game window is shrunk (or stretched) to this size by averaging pixels.
+
+        Args:
+            width: Image width in pixels, 16 to 1024.
+            height: Image height in pixels, 16 to 1024. Keep the window's aspect ratio to avoid distorted images.
+            hide_gui: `True` hides the interface (hotbar, crosshair, hand) like F1; `False` shows it again;
+                `None` leaves it as it is.
+
+        Returns:
+            The `info` dictionary, with the new `frame_width` and `frame_height`.
+        """
         request: dict[str, Any] = {"type": "config", "width": width, "height": height}
         if hide_gui is not None:
             request["hide_gui"] = hide_gui
@@ -95,13 +164,40 @@ class MinecraftClient:
 
     def step(self, ticks: int = 1, frame: bool = False, yaw: float = 0.0, pitch: float = 0.0,
              entities: bool | dict[str, Any] = False, **keys: bool) -> tuple[np.ndarray | None, dict[str, Any]]:
-        """Holds the ``keys`` for ``ticks`` ticks and turns the camera by ``yaw``/``pitch`` degrees.
+        """Holds keys for some ticks while turning the camera, then returns an image and the player's state.
 
-        Possible keys: forward, back, left, right, jump, sprint, sneak, attack, use.
-        ``yaw`` > 0 turns right, ``pitch`` > 0 looks down.
-        With ``entities`` (``True``, or a dict of ``get_entities`` options such as
-        ``{"radius": 16, "visibility": True}``), ``info["entities"]`` lists the entities as a list of ``Entity``;
-        with ``frame=True``, as the image shows them.
+        This is the basic command: everything that moves the player goes through it. Keys stay pressed after the
+        step, until the next command changes them, so that consecutive steps are smooth.
+
+        Args:
+            ticks: How long to hold the keys, 0 to 1200 (1 minute). With 0, only the rotation is applied, at once.
+            frame: Whether to return an image of the game, taken at the end of the step.
+            yaw: Degrees to turn horizontally during the step, spread evenly over the ticks. Positive turns right.
+            pitch: Degrees to turn vertically. Positive looks down. The pitch stays between -90 and 90.
+            entities: `True`, or a dict of options as for [`get_entities`][mcbot.MinecraftClient.get_entities]
+                (`radius`, `min`, `max`, `types`, `limit`, `visibility`), to list the entities around the player
+                in `info["entities"]`. With `frame=True`, they are listed as the image shows them.
+            **keys: Keys to hold, as `name=True`: `forward`, `back`, `left`, `right`, `jump`, `sprint`, `sneak`,
+                `attack`, `use`. Keys not given are released.
+
+        Returns:
+            A pair `(image, info)`. `image` is a numpy array of shape `(frame_height, frame_width, 3)`, `uint8`
+            RGB, top row first, or `None` without `frame=True`. `info` is the player's state, plus `entities`
+            (a list of [`Entity`][mcbot.Entity]) if requested.
+
+        Raises:
+            ValueError: Unknown key name.
+
+        Note:
+            The image is the last frame the game drew, part-way between two ticks: the state in `info` can be up to
+            one tick ahead of it. With `ticks=0`, no frame is drawn during the step, so the image comes from before
+            it. See [When an image is taken][image-timing].
+
+        Example:
+            ```python
+            # Walk forward and jump for one second, turning 45° left, with a picture at the end
+            image, info = mc.step(ticks=20, frame=True, forward=True, jump=True, yaw=-45)
+            ```
         """
         unknown = set(keys) - set(ACTION_KEYS)
         if unknown:
@@ -120,49 +216,127 @@ class MinecraftClient:
     # --- Shortcuts -----------------------------------------------------------------------------
 
     def stop(self, frame: bool = False) -> tuple[np.ndarray | None, dict[str, Any]]:
-        """Releases all keys."""
+        """Releases all keys (takes one tick).
+
+        Args:
+            frame: Whether to return an image.
+
+        Returns:
+            `(image, info)`, as for [`step`][mcbot.MinecraftClient.step].
+        """
         return self.step(ticks=1, frame=frame)
 
     def forward(self, ticks: int, sprint: bool = False, jump: bool = False,
                 frame: bool = False) -> tuple[np.ndarray | None, dict[str, Any]]:
-        """Walks forward for ``ticks`` ticks (20 ticks = 1 s)."""
+        """Walks forward.
+
+        Args:
+            ticks: How long to walk (20 ticks = 1 second).
+            sprint: Whether to sprint.
+            jump: Whether to hold jump at the same time.
+            frame: Whether to return an image.
+
+        Returns:
+            `(image, info)`, as for [`step`][mcbot.MinecraftClient.step].
+        """
         return self.step(ticks, frame=frame, forward=True, sprint=sprint, jump=jump)
 
     def turn(self, degrees: float, ticks: int = 10,
              frame: bool = False) -> tuple[np.ndarray | None, dict[str, Any]]:
-        """Turns on the spot (degrees > 0: to the right) over ``ticks`` ticks."""
+        """Turns on the spot.
+
+        Args:
+            degrees: How far to turn. Positive turns right.
+            ticks: How long the turn takes.
+            frame: Whether to return an image.
+
+        Returns:
+            `(image, info)`, as for [`step`][mcbot.MinecraftClient.step].
+        """
         return self.step(ticks, frame=frame, yaw=degrees)
 
     def look(self, pitch: float, ticks: int = 10,
              frame: bool = False) -> tuple[np.ndarray | None, dict[str, Any]]:
-        """Looks up (pitch < 0) or down (pitch > 0) over ``ticks`` ticks."""
+        """Looks up or down.
+
+        Args:
+            pitch: How far to tilt the view, in degrees. Positive looks down, negative looks up.
+            ticks: How long the movement takes.
+            frame: Whether to return an image.
+
+        Returns:
+            `(image, info)`, as for [`step`][mcbot.MinecraftClient.step].
+        """
         return self.step(ticks, frame=frame, pitch=pitch)
 
     def jump(self, frame: bool = False) -> tuple[np.ndarray | None, dict[str, Any]]:
+        """Jumps once (holds jump for 10 ticks).
+
+        Args:
+            frame: Whether to return an image.
+
+        Returns:
+            `(image, info)`, as for [`step`][mcbot.MinecraftClient.step].
+        """
         return self.step(ticks=10, frame=frame, jump=True)
 
     # --- Building ------------------------------------------------------------------------------
 
     def set_game_mode(self, mode: str) -> dict[str, Any]:
-        """Changes the game mode (survival, creative, adventure, spectator); singleplayer only, no cheats needed."""
+        """Changes the game mode. Works in a singleplayer world, without cheats.
+
+        Args:
+            mode: `"survival"`, `"creative"`, `"adventure"` or `"spectator"`.
+
+        Returns:
+            The `info` dictionary, once the new mode is applied.
+
+        Raises:
+            McBotError: Unknown mode, not in a singleplayer world, or not applied within 5 seconds.
+        """
         return self._request({"type": "game_mode", "mode": mode})[1]
 
     def set_build_mode(self, enabled: bool = True) -> dict[str, Any]:
-        """Build mode = creative: unlimited blocks, flying allowed, instant breaking."""
+        """Switches to creative ("build mode": unlimited blocks, flying, instant breaking) or back to survival.
+
+        Args:
+            enabled: `True` for creative, `False` for survival.
+
+        Returns:
+            The `info` dictionary, once the new mode is applied.
+        """
         return self.set_game_mode("creative" if enabled else "survival")
 
     def set_flying(self, enabled: bool = True) -> dict[str, Any]:
-        """Starts/stops flying (build mode required). While flying: jump = up, sneak = down.
+        """Starts or stops flying. Needs creative mode.
 
-        As long as flying is enabled by the script, the mod turns it back on if it stops in mid-air.
+        While flying, `jump` goes up and `sneak` goes down. Started on the ground, the player hops up about one
+        block. As long as flying is enabled by the script, the mod turns it back on if the game stops it.
+
+        Args:
+            enabled: Whether to fly.
+
+        Returns:
+            The `info` dictionary.
+
+        Raises:
+            McBotError: The player is not allowed to fly (not in creative).
         """
         return self._request({"type": "fly", "enabled": enabled})[1]
 
     def select_block(self, block: str, slot: int | None = None) -> dict[str, Any]:
-        """Puts a block in hand, for example ``"oak_planks"`` (``"minecraft:oak_planks"`` is also accepted).
+        """Puts a block in the player's hand.
 
-        In build mode, the block is created in hotbar slot ``slot`` (0-8, default: the current slot).
-        In survival, it must already be in the hotbar.
+        Args:
+            block: Block name, such as `"oak_planks"` (`"minecraft:oak_planks"` is also accepted).
+            slot: Hotbar slot, 0 to 8. In creative, the block is created in this slot (default: the current one).
+                In survival, the block must already be in the hotbar and this is ignored.
+
+        Returns:
+            The `info` dictionary, with `slot`, `item` and `is_block`.
+
+        Raises:
+            McBotError: Unknown block, or (in survival) not in the hotbar.
         """
         request: dict[str, Any] = {"type": "select_block", "block": block}
         if slot is not None:
@@ -171,15 +345,45 @@ class MinecraftClient:
 
     def place_block(self, x: float, y: float, z: float, face: str = "up", look: bool = True,
                     replace: bool = False) -> dict[str, Any]:
-        """Places the held block in cell (x, y, z), which must be within reach (5 blocks in creative).
+        """Places the block in hand, like a player would.
 
-        No neighbouring block needed: you can build in mid-air. ``face`` (the clicked face) orients some blocks:
-        ``"up"`` = vertical log / bottom slab, ``"down"`` = top slab, ``"north"``… = lying log.
-        If the cell holds another block, it is broken first with ``replace=True`` (build mode); otherwise the
-        placement fails with ``occupied``.
-        Returns ``info`` with ``placed`` (bool), ``replaced`` (the block that was broken, if any) and, on failure,
-        ``reason`` (already_there, occupied, out_of_reach, no_block_selected, player_in_the_way, rejected),
-        ``message``, and ``block`` (what is in the cell) for already_there and occupied.
+        The cell must be within reach (about 5 blocks from the eyes in creative). No neighbouring block is needed:
+        you can build in mid-air. To write blocks anywhere, in an exact state, use
+        [`set_block`][mcbot.MinecraftClient.set_block] instead.
+
+        Args:
+            x: Block coordinate (floats are rounded down).
+            y: Block coordinate.
+            z: Block coordinate.
+            face: The face being "clicked", which orients some blocks: `"up"` gives a vertical log or a bottom slab,
+                `"down"` a top slab, `"north"`, `"south"`, `"east"` or `"west"` a lying log.
+            look: Whether the player first looks at the cell. This also orients doors, stairs and torches.
+            replace: If the cell holds another block, break it first (creative only). Otherwise the placement
+                fails with reason `occupied`.
+
+        Returns:
+            The `info` dictionary, with:
+
+            - `placed`: whether the block was placed;
+            - `target`: the cell `[x, y, z]`;
+            - `block`: the block now in the cell, or the one found there (`already_there`, `occupied`);
+            - `replaced`: the block that was broken, if any;
+            - on failure, `reason` and `message`.
+
+            Possible reasons: `already_there` (the same block type is there), `occupied`, `out_of_reach`,
+            `no_block_selected`, `player_in_the_way`, `rejected`.
+
+        Raises:
+            ValueError: Unknown face.
+            McBotError: `replace=True` outside creative mode.
+
+        Example:
+            ```python
+            mc.select_block("oak_planks", slot=0)
+            info = mc.place_block(10, -60, 6)
+            if not info["placed"]:
+                print(info["reason"], info["message"])
+            ```
         """
         if face not in FACES:
             raise ValueError(f"Unknown face: {face!r} (possible: {FACES})")
@@ -187,44 +391,119 @@ class MinecraftClient:
                               "face": face, "look": look, "replace": replace})[1]
 
     def break_block(self, x: float, y: float, z: float, look: bool = True) -> dict[str, Any]:
-        """Instantly breaks block (x, y, z) (build mode). Returns ``info`` with ``broken`` (bool), ``block`` and, on
-        failure, ``reason`` (empty, out_of_reach, rejected) and ``message``."""
+        """Breaks a block instantly, like a player in creative. The block must be within reach.
+
+        Args:
+            x: Block coordinate (floats are rounded down).
+            y: Block coordinate.
+            z: Block coordinate.
+            look: Whether the player first looks at the block.
+
+        Returns:
+            The `info` dictionary, with `broken` (bool), `block` and, on failure, `reason` (`empty`,
+            `out_of_reach`, `rejected`) and `message`.
+
+        Raises:
+            McBotError: Not in creative mode.
+        """
         return self._request({"type": "break_block", "x": math.floor(x), "y": math.floor(y), "z": math.floor(z),
                               "look": look})[1]
 
     def set_block(self, x: float, y: float, z: float, block: str) -> dict[str, Any]:
-        """Writes an exact block state in cell (x, y, z), e.g. ``"oak_stairs[facing=east,half=bottom]"``.
+        """Writes an exact block state in a cell, like the `/setblock` command but without cheats.
 
-        Works in a singleplayer world, without cheats, at any distance and in any game mode. The block is written
-        as given: neighbouring blocks are not updated. Unspecified properties take their default value.
-        Returns ``info`` with ``block``: the full state now in the cell.
+        Works in a singleplayer world, in any game mode, in the chunks loaded around the player. The block is
+        written exactly as given: neighbouring blocks are not updated (a torch written on air stays, a fence doesn't
+        connect to its neighbours unless the state says so). Properties left out take their default value.
+
+        Args:
+            x: Block coordinate (floats are rounded down).
+            y: Block coordinate.
+            z: Block coordinate.
+            block: Block state, such as `"stone"` or `"oak_stairs[facing=east,half=top]"`.
+
+        Returns:
+            The `info` dictionary, with `block`: the full state written, and `changed`: `[[x, y, z, state]]` if the
+            game changed the block on its own right away (sand falling, for example), else `[]`.
+
+        Raises:
+            McBotError: Invalid state, position outside the world's height, chunk not loaded, not in a singleplayer
+                world.
+
+        Example:
+            ```python
+            mc.set_block(0, -60, 0, "oak_log[axis=x]")
+            ```
         """
         info = self.set_blocks([((x, y, z), block)])
         info["block"] = info.pop("blocks")[0]
         return info
 
     def set_blocks(self, blocks: Iterable[tuple[tuple[float, float, float], str]]) -> dict[str, Any]:
-        """Writes many exact block states, given as ``((x, y, z), state)`` pairs, in order.
+        """Writes many exact block states, in order. Same rules as [`set_block`][mcbot.MinecraftClient.set_block].
 
-        Sent in batches of ``SET_BLOCKS_BATCH``; each batch is checked completely before anything is written.
-        Returns the ``info`` of the last batch, with ``blocks``: the full state written for every entry.
+        Blocks are sent in batches of [`SET_BLOCKS_BATCH`][mcbot.client.SET_BLOCKS_BATCH]. Every state and
+        position of a batch is checked before anything is written: one invalid entry means nothing of that batch is
+        written (earlier batches stay written). The call returns once the game shows the new blocks, so that
+        [`get_blocks`][mcbot.MinecraftClient.get_blocks] right after sees them.
+
+        Some blocks change on their own as soon as they are written, as in the game: sand over air falls, a
+        redstone wire without a block under it breaks. The call then returns after half a second at most, and lists
+        them in `changed`.
+
+        Args:
+            blocks: Pairs `((x, y, z), state)`. Write `"air"` to remove a block. Every cell must be in a chunk
+                loaded around the player.
+
+        Returns:
+            The `info` dictionary of the last batch, with `blocks`: the full state written for every entry, and
+            `changed`: `[x, y, z, state now]` for each cell the game changed on its own (usually empty).
+
+        Raises:
+            ValueError: `blocks` is empty.
+            McBotError: Invalid state, position outside the world's height, chunk not loaded, not in a singleplayer
+                world.
+
+        Example:
+            ```python
+            # A 5 × 5 stone floor
+            mc.set_blocks(((x, -61, z), "stone") for x in range(5) for z in range(5))
+            ```
         """
         entries = [[*_block_pos(pos), block] for pos, block in blocks]
         if not entries:
             raise ValueError("No blocks to write")
         written: list[str] = []
+        changed: list[list] = []
         for start in range(0, len(entries), SET_BLOCKS_BATCH):
             info = self._request({"type": "set_blocks", "blocks": entries[start:start + SET_BLOCKS_BATCH]})[1]
             written += info["blocks"]
+            changed += info.get("changed", [])
         info["blocks"] = written
+        info["changed"] = changed
         return info
 
     def fly_to(self, x: float, y: float, z: float, tolerance: float = 0.75, vertical_tolerance: float = 0.35,
                max_steps: int = 600, face_target: bool = True) -> dict[str, Any]:
-        """Flies until the feet are at position (x, y, z), then stops and releases the keys.
+        """Flies until the feet are at a position, then stops and releases the keys. Needs creative mode.
 
-        Steering: estimate where the player would stop if everything were released (momentum is kept), and press
-        forward/back/left/right/up/down to bring that stopping point onto the target.
+        Turns flying on if needed. At each step, predicts where the player would stop if every key were released
+        (flight keeps momentum), and presses the keys that bring that point onto the target.
+
+        Args:
+            x: Target feet position.
+            y: Target feet position.
+            z: Target feet position.
+            tolerance: Accepted horizontal distance to the target, in blocks.
+            vertical_tolerance: Accepted vertical distance to the target, in blocks.
+            max_steps: Steps (1 or 2 ticks each) before giving up.
+            face_target: Whether to turn towards the target while flying.
+
+        Returns:
+            The `info` dictionary at arrival.
+
+        Raises:
+            McBotError: The target was not reached within `max_steps` steps, or the player can't fly.
         """
         info = self.ping()
         if not info.get("flying"):
@@ -265,16 +544,46 @@ class MinecraftClient:
 
     def get_blocks(self, corner1: tuple[float, float, float], corner2: tuple[float, float, float],
                    states: bool = False) -> BlockVolume:
-        """Blocks of the box between two corners (included), in world coordinates.
+        """Reads the blocks of a box, between two opposite corners.
 
-        The box is limited to the world height and to 1,048,576 blocks (3 × 3 full chunks); its chunks must be
-        loaded (within render distance). With ``states=True``, the palette contains the full state of the
-        blocks (``"oak_log[axis=y]"``) instead of their name only.
+        Only loaded chunks can be read (those within render distance). A request covers at most 1,048,576 blocks
+        (3 × 3 full chunks) and is cut to the world's height.
+
+        Args:
+            corner1: A corner block `(x, y, z)`, included. Floats are rounded down.
+            corner2: The opposite corner, included. The corners can be given in any order.
+            states: Whether the palette holds full block states (`"oak_log[axis=y]"`) instead of names only
+                (`"oak_log"`).
+
+        Returns:
+            The blocks of the box.
+
+        Raises:
+            McBotError: A chunk of the box is not loaded, the box is too large, or it is outside the world's height.
+
+        Example:
+            ```python
+            volume = mc.get_blocks((0, -61, 0), (15, -55, 15))
+            print(volume.block_at(3, -61, 4))
+            ```
         """
         return self._blocks({"min": _block_pos(corner1), "max": _block_pos(corner2)}, states)
 
     def get_chunk(self, cx: int | None = None, cz: int | None = None, states: bool = False) -> BlockVolume:
-        """Whole chunk (16 × world height × 16) at chunk coordinates (cx, cz); by default, the player's chunk."""
+        """Reads a whole chunk: 16 × world height × 16 blocks.
+
+        Args:
+            cx: Chunk coordinate, `x // 16`. By default, the player's chunk.
+            cz: Chunk coordinate, `z // 16`. Give both `cx` and `cz`, or neither.
+            states: Whether the palette holds full block states.
+
+        Returns:
+            The blocks of the chunk.
+
+        Raises:
+            ValueError: Only one of `cx` and `cz` given.
+            McBotError: The chunk is not loaded.
+        """
         if (cx is None) != (cz is None):
             raise ValueError("Give both cx and cz, or neither")
         if cx is None:
@@ -283,7 +592,18 @@ class MinecraftClient:
         return self._blocks({"chunk": [cx, cz]}, states)
 
     def get_blocks_around(self, radius: int = 8, states: bool = False) -> BlockVolume:
-        """Cube of side 2 × radius + 1 centred on the block of the player's feet (position read at the same tick)."""
+        """Reads a cube centred on the block of the player's feet, at the same tick as the player's position.
+
+        Args:
+            radius: Half the side of the cube: the side is `2 × radius + 1`.
+            states: Whether the palette holds full block states.
+
+        Returns:
+            The blocks of the cube.
+
+        Raises:
+            McBotError: A chunk of the cube is not loaded, or the cube is too large.
+        """
         return self._blocks({"radius": radius}, states)
 
     def _blocks(self, box: dict[str, Any], states: bool) -> BlockVolume:
@@ -292,11 +612,28 @@ class MinecraftClient:
 
     def get_entities(self, radius: float = 32.0, types: Iterable[str] | None = None, limit: int = 256,
                      visibility: bool = False) -> list[Entity]:
-        """Entities within ``radius`` blocks of the player's feet (max 256), nearest first, the player excluded.
+        """Lists the entities (mobs, dropped items, other players…) around the player, nearest first.
 
-        ``types`` keeps only some types (``["zombie", "skeleton"]``); ``limit`` (max 4096) cuts the list.
-        With ``visibility=True``, each entity gets ``line_of_sight`` and ``in_view``, seen from the player's eyes.
-        Only the entities the server sends to the client are known (about 8 chunks around for mobs).
+        Only the entities the server sends to the game are known: about 8 chunks around for mobs, 6 for dropped
+        items, never beyond render distance. The player itself is not listed. An empty list is not an error.
+
+        Args:
+            radius: Distance from the player's feet, in blocks, 0 to 256.
+            types: Only these types, such as `["zombie", "skeleton"]` (a single name works too). Default: all.
+            limit: At most this many entities (the nearest ones), 1 to 4096.
+            visibility: Whether to add `in_view` and `line_of_sight` to each entity, seen from the player's eyes.
+
+        Returns:
+            The entities, nearest first.
+
+        Raises:
+            McBotError: Invalid radius or limit, unknown entity type.
+
+        Example:
+            ```python
+            mobs = mc.get_entities(radius=24, types=["zombie", "creeper"], visibility=True)
+            seen = [e for e in mobs if e.in_view and e.line_of_sight]
+            ```
         """
         return self._entities(_entity_query({"radius": radius, "types": types, "limit": limit,
                                               "visibility": visibility}))
@@ -304,7 +641,21 @@ class MinecraftClient:
     def get_entities_in(self, corner1: tuple[float, float, float], corner2: tuple[float, float, float],
                         types: Iterable[str] | None = None, limit: int = 256,
                         visibility: bool = False) -> list[Entity]:
-        """Entities whose hitbox touches the box between two corner blocks (included), nearest first."""
+        """Lists the entities whose hitbox touches a box, nearest first.
+
+        Args:
+            corner1: A corner block `(x, y, z)`, included.
+            corner2: The opposite corner block, included.
+            types: Only these types. Default: all.
+            limit: At most this many entities, 1 to 4096.
+            visibility: Whether to add `in_view` and `line_of_sight` to each entity.
+
+        Returns:
+            The entities, nearest first.
+
+        Raises:
+            McBotError: Invalid limit, unknown entity type.
+        """
         return self._entities(_entity_query({"min": corner1, "max": corner2, "types": types, "limit": limit,
                                               "visibility": visibility}))
 
@@ -352,7 +703,26 @@ class MinecraftClient:
 
 def connect_with_retry(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT, retry_seconds: float = 3.0,
                        log: Callable[[str], None] = print) -> MinecraftClient:
-    """Connects to the mod, retrying as long as Minecraft is not running."""
+    """Connects to the mod, retrying as long as Minecraft is not reachable.
+
+    Handy to start a script before the game. Use the result in a `with` block: it keeps this connection.
+
+    Args:
+        host: Address of the mod.
+        port: Port of the mod.
+        retry_seconds: Time between two attempts, in seconds.
+        log: Called with a message at each attempt.
+
+    Returns:
+        A connected client.
+
+    Example:
+        ```python
+        with connect_with_retry() as mc:
+            mc.wait_for_world()
+            ...
+        ```
+    """
     log(f"Connecting to Minecraft on {host}:{port}...")
     while True:
         try:

@@ -161,3 +161,61 @@ The project was started by Florian Desmons on Windows.
   player's state in `info`, and with `ticks=0` it comes from before the step. Not changed: making the image match
   `info` exactly would need waiting for an extra frame at the end of each step.
 - Checked: the mod compiles, 31 Python tests pass. **Not yet tested in the game.**
+
+## 2026-11-17 — Script to test entity reading
+
+- New script `scripts/watch_entities.py`: the player stands still and, every `--every` ticks (default 20), lists the
+  entities within `--radius` blocks with their id, type, name (custom name, player name or dropped item) and
+  coordinates; entities that appeared or left since the previous scan are marked `+` / `-`. Meant to test entity
+  reading in the game.
+- Checked against the tests' fake mod. **Not yet tested in the game.**
+
+## 2026-11-17 — User documentation site, set_blocks checks
+
+- Entity reading tested in the game by Louis: works. A quick, uncommitted experiment also drew boxes around
+  entities in a picture by projecting their hitboxes from the player's state; boxes lined up well (the exact
+  version, computed in the mod, stays on the roadmap).
+- New script `scripts/check_set_blocks.py`: automated in-game checks of `set_block` / `set_blocks` (exact round
+  trip of ~20 states, defaults, all-or-nothing validation, no neighbour updates, 8,000-block write, blocks the game
+  changes on its own, a write 600 blocks away), in an empty box near the player that it clears afterwards.
+  Checked against a simulated world only. Two cases are expected to fail with the current mod, since `set_blocks`
+  waits until the client shows exactly the written state: a block far outside the loaded area (the client never
+  receives it) and a redstone wire with power but no source (the game resets its power at once).
+- **User documentation** for students, as a MkDocs Material site in `python/docs/` (`python/mkdocs.yml`), to be
+  published on GitHub Pages by `.github/workflows/docs.yml`:
+  - Home, Getting started (installation, first script), Guides (moving, images, blocks, entities, building,
+    control loop), Concepts (time, space, state, errors, limits), API reference, Examples, Troubleshooting;
+  - the API reference is generated from the docstrings (mkdocstrings), now in Google style with `Args`,
+    `Returns`, `Raises` and `Example` sections; code unchanged (checked by comparing the syntax trees);
+  - neutral ISC look: black and white with the ISC logo (black on light, white on dark), the five ISC colours as a
+    stripe under the header and on the home cards;
+  - docs dependencies in the uv group `docs` (`uv run --group docs mkdocs serve`); `mkdocs build --strict` fails on
+    broken links.
+- `doc/python-api.md` removed: its content moved to the site (guides + generated reference). `doc/` now only holds
+  the internal documentation; guidelines.md says which goes where.
+- Note: Material for MkDocs reaches end of life in May 2027; its successor Zensical reads the same `mkdocs.yml`.
+
+## 2026-11-17 — set_blocks: loaded chunks only, blocks that change on their own
+
+- First run of `check_set_blocks.py` in the game: exact states, defaults, validation, no neighbour updates and an
+  8,000-block write (0.3 s) pass. Three cases timed out after 5 s although the server had written the blocks, because
+  the controller waited for the client to show exactly the written state:
+  - sand over air (it fell before the client showed it);
+  - a redstone wire with power and nothing under it (it broke at once);
+  - a block 600 blocks away (the client never receives that chunk; its removal timed out too).
+- Decisions:
+  - **`set_blocks` only writes in chunks the client has loaded** (Louis: no need for ungenerated chunks). Checked
+    with the other validations, before anything is written: *Chunk (cx, cz) is not loaded*, like `get_blocks`. The
+    server never loads or generates a chunk for it.
+  - **Blocks the game changes on its own are not errors.** Once the server has written the batch, the controller
+    waits for the client to show it, at most 10 ticks (`WRITE_SETTLE_TICKS`), then answers anyway. The response
+    gains `changed`: `[[x, y, z, "state now"], …]` for the cells that don't hold what was written. Python gathers
+    it over all batches.
+- `check_set_blocks.py` not updated yet: check 7 will now report the "not loaded" error, check 6 should pass.
+- Checked: the mod compiles, 32 Python tests pass, the docs build in strict mode. **Not yet tested in the game.**
+
+## 2026-11-17 — scan_entities.py kept out of the repository
+
+- `scripts/scan_entities.py` (picture + entities with their visibility flags) is left for the students to write:
+  removed from Git before the entity commit was pushed, kept locally (`.git/info/exclude`), and no longer listed in
+  the README, architecture.md or the user docs.

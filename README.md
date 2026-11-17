@@ -2,10 +2,12 @@
 
 Drive your Minecraft character from Python, with images of the game, with a view to plugging in ML later.
 
+**User documentation (getting started, guides, API reference): <https://louismlettry.github.io/Craftilot/>**, built from `python/docs/` (preview locally with `cd python && uv run --group docs mkdocs serve`).
+
 - `mod/`: **Fabric mod for Minecraft 1.21.1** (client side). It opens a local TCP server (`127.0.0.1:5555`) that receives actions (move forward, turn, jump…) and sends back the player's state and, on request, an image of the game.
 - `python/`: Python client (`mcbot`) and, in `python/scripts/`, the demo scripts: `demo_movements.py`
-  (movement), `build_house.py` (building), `scan_blocks.py` (reading the blocks around the player) and
-  `scan_entities.py` (listing the mobs and items around the player).
+  (movement), `build_house.py` (building), `scan_blocks.py` (reading the blocks around the player),
+  `watch_entities.py` (standing still and listing the mobs and items around the player again and again) and `check_set_blocks.py` (checking `set_blocks` in the game).
 - `doc/`: system documentation (architecture, journal, roadmap).
 - `guidelines.md`: conventions and decisions that apply to the whole project (units, block names, protocol…).
 
@@ -93,7 +95,7 @@ Keys available for `step`: `forward, back, left, right, jump, sprint, sneak, att
 
 The image is the last frame the game drew, part-way between two ticks: the player's state in `info` can be up to one
 tick ahead of it. With `ticks=0`, the image comes from before the step and doesn't show its rotation. Details in
-[doc/python-api.md](doc/python-api.md#moving-and-looking).
+[When an image is taken](https://louismlettry.github.io/Craftilot/concepts/time/#when-an-image-is-taken).
 
 ## 4. Automatic building
 
@@ -148,14 +150,15 @@ with MinecraftClient() as mc:
 
 ### Writing exact block states
 `place_block` places the block in hand like a player would, so orientation depends on where the player looks.
-To write an exact block state instead, at any distance and without flying:
+To write an exact block state instead, anywhere in the chunks loaded around the player and without flying:
 ```python
 mc.set_block(12, -60, 4, "oak_stairs[facing=east,half=top]")
 mc.set_blocks([((x, -60, 8), "oak_log[axis=x]") for x in range(5)])   # many blocks, sent in batches
 ```
 This works in a singleplayer world, without cheats, in any game mode. Blocks are written exactly as given:
 neighbouring blocks are not updated (a torch written before its wall stays in place, a fence doesn't connect to a
-new neighbour on its own). Unspecified properties take their default value.
+new neighbour on its own). Unspecified properties take their default value. Blocks the game changes on its own
+right away (falling sand…) are listed in `info["changed"]`.
 
 ## 5. Reading the world's blocks
 
@@ -194,10 +197,10 @@ with MinecraftClient() as mc:
 ### Entities (mobs, dropped items, players)
 ```powershell
 cd python
-uv run python scripts/scan_entities.py --radius 32
+uv run python scripts/watch_entities.py --radius 32 --every 20
 ```
-Takes a picture (`frames/entities.png`) and lists the entities around the player, saying for each one whether it is
-in the picture's field of view and in line of sight.
+The player stands still; every `--every` ticks, lists the entities around it with their name and coordinates,
+marking those that appeared (`+`) or left (`-`) since the previous scan. Stop with Ctrl+C.
 
 ```python
 with MinecraftClient() as mc:
@@ -233,7 +236,7 @@ Big-endian integers, one request → one response:
 | `select_block` | `block`, `slot` (0–8, optional) | Puts the block in hand (created in creative, looked up in the hotbar otherwise). |
 | `place_block` | `x`, `y`, `z`, `face` (default `up`), `look` (default `true`), `replace` (default `false`) | Places the held block → `placed`, `reason`, `message`, `block`, `replaced`. |
 | `break_block` | `x`, `y`, `z`, `look` | Breaks the block (creative) → `broken`, `reason`, `block`. |
-| `set_blocks` | `blocks`: [[x, y, z, "state"], …] | Writes exact block states (singleplayer); answers once the client shows them → `blocks` (full states written). |
+| `set_blocks` | `blocks`: [[x, y, z, "state"], …] | Writes exact block states (singleplayer, loaded chunks only); answers once the client shows them, or 10 ticks after the server wrote them → `blocks` (full states written), `changed` ([[x, y, z, "state now"], …] for the cells the game changed on its own). |
 | `blocks` | `min` and `max` [x, y, z], **or** `chunk` [cx, cz], **or** `radius`; `states` (default `false`) | Blocks of the box → `origin` [x, y, z], `shape` [sx, sy, sz], `palette`, and the indices in binary. |
 | `entities` | `radius` (default 32, max 256) **or** `min` and `max` [x, y, z]; `types` (list, default all); `limit` (default 256, max 4096); `visibility` (default `false`) | Entities around the player, nearest first → `entities`: [{`id`, `type`, `category`, `pos`, `motion`, `yaw`, `pitch`, `size` [w, h], `distance`, `invisible`, `name`, `health`, `max_health`, `baby`, `item`, `count`, `line_of_sight`, `in_view`}, …] (fields that don't apply are left out). |
 

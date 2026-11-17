@@ -121,6 +121,14 @@ def test_set_block_and_batches(client, monkeypatch):
         client.set_blocks([])
 
 
+def test_set_blocks_reports_blocks_the_game_changed(client, monkeypatch):
+    assert client.set_block(0, -60, 0, "stone")["changed"] == []
+    assert client.set_block(0, -59, 0, "sand")["changed"] == [[0, -59, 0, "air"]]
+    monkeypatch.setattr("mcbot.client.SET_BLOCKS_BATCH", 2)
+    info = client.set_blocks([((0, -60, 1), "sand"), ((1, -60, 1), "stone"), ((2, -60, 1), "sand")])
+    assert info["changed"] == [[0, -60, 1, "air"], [2, -60, 1, "air"]]  # gathered from both batches
+
+
 def test_get_entities_request_and_decoding(client):
     zombie, item = client.get_entities(radius=16, types="zombie", visibility=True)
     assert client.fake.requests[-1] == {"type": "entities", "radius": 16, "types": ["zombie"], "limit": 256,

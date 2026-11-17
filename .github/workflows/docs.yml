@@ -1,0 +1,45 @@
+# Builds the user documentation (python/docs, MkDocs) and publishes it on GitHub Pages.
+# One-time setup: repository Settings > Pages > Source: "GitHub Actions".
+name: Documentation
+
+on:
+  push:
+    branches: [main]
+    paths: ["python/**", ".github/workflows/docs.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: python
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Build the site (fails on broken links or references)
+        run: uv run --locked --group docs mkdocs build --strict
+        env:
+          NO_MKDOCS_2_WARNING: "1"
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: python/site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,124 @@
+site_name: Craftilot
+site_description: Drive a Minecraft player from Python with the mcbot package.
+site_url: https://louismlettry.github.io/Craftilot/
+repo_url: https://github.com/LouisMLettry/Craftilot
+repo_name: Craftilot
+edit_uri: edit/main/python/docs/
+copyright: ISC · HES-SO Valais-Wallis
+exclude_docs: |
+  overrides/
+
+theme:
+  name: material
+  custom_dir: docs/overrides
+  favicon: assets/isc-symbol.svg
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - navigation.footer
+    - navigation.instant
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+  icon:
+    repo: fontawesome/brands/github
+
+extra_css:
+  - stylesheets/isc.css
+
+nav:
+  - Home: index.md
+  - Getting started:
+      - getting-started/index.md
+      - Installation: getting-started/installation.md
+      - Your first script: getting-started/first-script.md
+  - Guides:
+      - guides/index.md
+      - Moving and looking: guides/moving.md
+      - Images: guides/images.md
+      - Reading blocks: guides/blocks.md
+      - Entities: guides/entities.md
+      - Building: guides/building.md
+      - Writing a control loop: guides/control-loop.md
+  - Concepts:
+      - concepts/index.md
+      - Time and ticks: concepts/time.md
+      - Coordinates and angles: concepts/space.md
+      - The player's state: concepts/state.md
+      - Errors: concepts/errors.md
+      - Limits: concepts/limits.md
+  - API reference:
+      - reference/index.md
+      - MinecraftClient: reference/client.md
+      - BlockVolume: reference/blocks.md
+      - Entity: reference/entities.md
+      - Builder: reference/builder.md
+      - Protocol: reference/protocol.md
+  - Examples: examples.md
+  - Troubleshooting: troubleshooting.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.keys
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+
+plugins:
+  - search
+  - autorefs
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [.]
+          options:
+            docstring_style: google
+            docstring_section_style: list
+            docstring_options:
+              ignore_init_summary: true
+            merge_init_into_class: true
+            members_order: source
+            filters: ["!^_"]
+            heading_level: 2
+            show_root_heading: true
+            show_root_full_path: false
+            show_symbol_type_heading: true
+            show_symbol_type_toc: true
+            show_signature_annotations: true
+            separate_signature: true
+            signature_crossrefs: true
+            show_source: true
+            show_bases: false

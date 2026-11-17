@@ -59,6 +59,11 @@ public class BotController {
 	private static final int MAX_TICKS_PER_STEP = 20 * 60;
 	/** Maximum wait for a change to be applied (game mode, written blocks): 5 s. */
 	private static final int WAIT_TIMEOUT_TICKS = 100;
+	/**
+	 * Once the server has written blocks, ticks to wait for the client to show them before answering anyway: blocks
+	 * the game changes right away (falling sand…) never show as written. The client normally shows them within a tick.
+	 */
+	private static final int WRITE_SETTLE_TICKS = 10;
 	private static final int MIN_FRAME_SIZE = 16;
 	private static final int MAX_FRAME_SIZE = 1024;
 
@@ -294,8 +299,10 @@ public class BotController {
 	}
 
 	/**
-	 * Writes exact block states: {@code blocks} = [[x, y, z, "oak_stairs[facing=east]"], …]. Every state is parsed
-	 * before anything is written; the response comes once the client shows the new blocks.
+	 * Writes exact block states: {@code blocks} = [[x, y, z, "oak_stairs[facing=east]"], …]. Every state and
+	 * position is checked before anything is written. The response comes once the client shows the new blocks, or
+	 * {@link #WRITE_SETTLE_TICKS} after the server wrote them; {@code changed} then lists the cells the game changed
+	 * on its own.
 	 */
 	private void beginSetBlocks(Minecraft client, BotRequest request) {
 		BuildActions.requirePlayer(client);
@@ -316,14 +323,18 @@ public class BotController {
 		prepareForControl(client);
 
 		CompletableFuture<Void> written = BlockWriter.write(client, positions, states);
+		int[] ticksSinceWritten = {0};
 		waitFor(request,
-				() -> written.isDone() && (written.isCompletedExceptionally() || BlockWriter.isVisible(client.level, positions, states)),
+				() -> written.isDone() && (written.isCompletedExceptionally()
+						|| BlockWriter.isVisible(client.level, positions, states)
+						|| ++ticksSinceWritten[0] >= WRITE_SETTLE_TICKS),
 				() -> {
 					if (written.isCompletedExceptionally()) {
 						return BotResponse.error("The server failed to write the blocks: " + written.exceptionNow());
 					}
 					JsonObject result = new JsonObject();
 					result.add("blocks", BlockWriter.names(states));
+					result.add("changed", BlockWriter.changes(client.level, positions, states));
 					return buildResponse(client, result);
 				},
 				"Timed out waiting for the blocks to be written");

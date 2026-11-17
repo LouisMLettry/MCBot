@@ -69,12 +69,15 @@ class FakeMod:
             info.update(self._break(request))
         if request["type"] == "set_blocks":
             states = [state.removeprefix("minecraft:") for *_, state in request["blocks"]]
+            changed = []
             for (x, y, z, _), state in zip(request["blocks"], states):
-                if state == "air":
+                if state == "sand":  # like the game, sand written over air falls at once
+                    changed.append([x, y, z, "air"])
+                if state in ("air", "sand"):
                     self.world.pop((x, y, z), None)
                 else:
                     self.world[(x, y, z)] = state
-            info.update(blocks=states)
+            info.update(blocks=states, changed=changed)
         if request["type"] == "blocks":
             # 2 × 3 × 2 box ordered by x, then y, then z: block no. i has palette index i % 3.
             info.update(payload="blocks", origin=request.get("min", [0, -64, 0]), shape=[2, 3, 2],

@@ -12,34 +12,84 @@ HOTBAR_SIZE = 9
 
 @dataclass(frozen=True)
 class Placement:
-    """A block to place: position (world coordinates), block identifier and clicked face.
+    """One cell of a plan: the block it must hold.
 
-    The block ``"air"`` means the cell must be emptied: the builder breaks whatever is there.
+    The block `"air"` means the cell must be emptied: the builder breaks whatever is there.
+
+    Example:
+        ```python
+        Placement((0, -60, 3), "oak_log", face="east")   # a lying log
+        Placement((0, -59, 3), "air")                    # empty this cell
+        ```
     """
 
     pos: tuple[int, int, int]
+    """Block coordinates `(x, y, z)`."""
     block: str
+    """Block name, such as `"cobblestone"`, or `"air"` to empty the cell."""
     face: str = "up"
+    """Clicked face, which orients some blocks (see [`place_block`][mcbot.MinecraftClient.place_block])."""
 
     @property
     def is_removal(self) -> bool:
+        """Whether this placement empties the cell (block `"air"`)."""
         return self.block.removeprefix("minecraft:") == "air"
 
 
 @dataclass
 class Phase:
-    """Group of blocks placed from the same spot (feet position), from which they are all within reach."""
+    """A group of blocks placed from the same spot.
+
+    Every block must be within reach of the standpoint (about 5 blocks from the eyes, which are 1.62 blocks above
+    the feet), and the standpoint must not be in a cell that will be filled.
+    """
 
     name: str
+    """Shown in the log."""
     standpoint: tuple[float, float, float]
+    """Feet position the player flies to before placing the blocks."""
     blocks: list[Placement] = field(default_factory=list)
+    """Placed in this order: put supporting blocks first."""
 
 
 class Builder:
-    """Runs the phases one after the other: flies to each phase's spot, then places its blocks one by one.
+    """Builds a plan, phase by phase: flies to each phase's standpoint, then places its blocks one by one.
 
-    A cell holding another block than the planned one is left as it is and listed in ``occupied``, unless
-    ``replace=True``: then the old block is broken and the planned one placed.
+    A plan describes the result you want. For each cell, the builder compares it with what is there:
+
+    | The cell holds… | Planned block | Planned `"air"` |
+    |---|---|---|
+    | nothing (or grass, water…) | placed → `placed` | nothing to do → `already_there` |
+    | the planned block | nothing to do → `already_there` | broken → `removed` |
+    | another block | left as it is → `occupied`; with `replace=True`: broken, then placed → `placed` and `replaced` | broken → `removed` |
+
+    The builder flies with [`fly_to`][mcbot.MinecraftClient.fly_to]: switch to creative first
+    (`mc.set_build_mode(True)`).
+
+    Args:
+        mc: A connected client.
+        delay_ticks: Ticks waited after each block (0: as fast as possible).
+        replace: Whether cells holding another block are broken and refilled.
+        log: Called with a message for each phase and each problem.
+
+    Example:
+        ```python
+        mc.set_build_mode(True)
+        builder = Builder(mc, delay_ticks=0)
+        builder.build([
+            Phase("Wall", standpoint=(0.5, -58, 0.5),
+                  blocks=[Placement((x, -60, 3), "cobblestone") for x in range(-2, 3)]),
+        ])
+        print(builder.summary())
+        ```
+
+    Attributes:
+        placed: Number of blocks placed.
+        replaced: Among them, how many replaced another block.
+        removed: Number of blocks broken for `"air"` placements.
+        already_there: Cells that were already as planned.
+        occupied: `(placement, block found)` for the cells left holding another block (only without `replace`).
+        failures: `(placement, message)` for the cells that couldn't be changed (out of reach, refused…).
     """
 
     def __init__(self, mc: MinecraftClient, delay_ticks: int = 2, replace: bool = False,
@@ -58,6 +108,11 @@ class Builder:
         self._held: str | None = None
 
     def build(self, phases: list[Phase]) -> None:
+        """Builds all phases, in order.
+
+        Raises:
+            McBotError: A standpoint couldn't be reached (see [`fly_to`][mcbot.MinecraftClient.fly_to]).
+        """
         for phase in phases:
             self.log(f"-- {phase.name}: {len(phase.blocks)} blocks")
             self.mc.fly_to(*phase.standpoint)
@@ -65,7 +120,8 @@ class Builder:
                 self.place(placement)
 
     def select(self, block: str) -> None:
-        """Puts the block in hand; each new block takes the next hotbar slot."""
+        """Puts a block in hand, unless it is already held. Each new block name gets the next hotbar slot,
+        cycling over the 9 slots."""
         if block == self._held:
             return
         slot = self._slots.setdefault(block, len(self._slots) % HOTBAR_SIZE)
@@ -73,9 +129,10 @@ class Builder:
         self._held = block
 
     def place(self, placement: Placement) -> bool:
-        """Places the block (or empties the cell for ``"air"``) from where the player is now.
+        """Places one block, or empties the cell for `"air"`, from where the player is now.
 
-        Returns True if the cell was changed.
+        Returns:
+            Whether the cell was changed.
         """
         changed = self._remove(placement) if placement.is_removal else self._place(placement)
         if self.delay_ticks:
@@ -83,6 +140,7 @@ class Builder:
         return changed
 
     def summary(self) -> str:
+        """A one-line report, such as `"198 blocks placed (3 replacing another block), 4 removed"`."""
         parts = [f"{self.placed} blocks placed"]
         if self.replaced:
             parts[0] += f" ({self.replaced} replacing another block)"

@@ -40,7 +40,10 @@ Python never touches the game directly: everything goes through the mod, one req
     │   ├── demo_movements.py  Walk, turn, jump, sprint… and save frames
     │   ├── build_house.py     Build a small house, then take a picture
     │   ├── scan_blocks.py     Top-down map of the blocks around the player
-    │   └── scan_entities.py   Picture + list of the entities around the player
+    │   ├── watch_entities.py  Stand still and list the entities every second
+    │   └── check_set_blocks.py  Checks set_block / set_blocks in the game, then cleans up
+    ├── docs/              User documentation (MkDocs site): guides, concepts, API reference
+    ├── mkdocs.yml         Configuration of the documentation site
     ├── frames/            Images saved by the scripts (not in Git)
     └── tests/             Tests with a fake mod (no Minecraft needed)
 ```
@@ -55,7 +58,7 @@ Python never touches the game directly: everything goes through the mod, one req
 | `BotController` | Runs on the **game thread**, once per tick. Takes the next request from a queue and executes it. A `step` holds keys for N ticks (20 ticks = 1 s) and spreads the camera rotation over them. Also prevents the game from pausing while a script is connected, and keeps the player flying if the script asked for it. |
 | `BuildActions` | Building helpers: switch game mode through the singleplayer server (works without cheats), fly, put a block in hand, place a block (no neighbour needed — you can build in the air; optionally replacing the block already there), break a block. |
 | `FrameCapture` | Takes a screenshot of what the game rendered and shrinks it to the requested size (e.g. 160×90), as raw RGB bytes. |
-| `BlockWriter` | Writes exact block states through the singleplayer server (like `/setblock`, without cheats), without updating neighbouring blocks. The controller answers once the client shows them. |
+| `BlockWriter` | Writes exact block states through the singleplayer server (like `/setblock`, without cheats), without updating neighbouring blocks, in chunks the client has loaded only. The controller answers once the client shows them, or 10 ticks after the server wrote them (blocks the game changes on its own, like falling sand, never show as written); `changed` lists those cells. |
 | `BlockScan` | Reads the blocks of a box (two corners, a whole chunk, or a cube around the player) from the game client's copy of the world. Only loaded chunks can be read. Returns a palette of block names plus one number per block. Limited to 1,048,576 blocks per request. |
 | `EntityScan` | Lists the entities the client knows (within a radius or a box), nearest first, as JSON. Optionally tells for each one whether it is in the camera's field of view (frustum test on its hitbox) and in line of sight (up to 3 rays through the blocks' visual shapes). Works from a *view*: either the camera of a rendered frame, or the player's eyes at the current tick. |
 
@@ -74,7 +77,8 @@ the entities of the current tick are sent instead.
 
 ## The Python client
 
-Full reference with parameters and examples: [python-api.md](python-api.md).
+Full reference with parameters and examples: the [user documentation](https://louismlettry.github.io/Craftilot/), generated from the docstrings
+and the pages in `python/docs/`.
 
 | Piece | Role |
 |---|---|
