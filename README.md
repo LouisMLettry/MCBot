@@ -2,7 +2,7 @@
 
 Drive your Minecraft character from Python, with images of the game, with a view to plugging in ML later.
 
-**User documentation (getting started, guides, API reference): <https://louismlettry.github.io/Craftilot/>**, built from `python/docs/` (preview locally with `cd python && uv run --group docs mkdocs serve`).
+**User documentation (getting started, guides, API reference): <https://louismlettry.github.io/MCBot/>**, built from `python/docs/` (preview locally with `cd python && uv run --group docs mkdocs serve`).
 
 - `mod/`: **Fabric mod for Minecraft 1.21.1** (client side). It opens a local TCP server (`127.0.0.1:5555`) that receives actions (move forward, turn, jump…) and sends back the player's state and, on request, an image of the game.
 - `python/`: Python client (`mcbot`) and, in `python/scripts/`, the demo scripts: `demo_movements.py`
