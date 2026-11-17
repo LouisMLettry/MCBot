@@ -5,7 +5,7 @@ import math
 import numpy as np
 import pytest
 
-from mcbot import McBotError
+from mcbot import Entity, McBotError
 
 
 def test_ping(client):
@@ -119,3 +119,33 @@ def test_set_block_and_batches(client, monkeypatch):
     assert info["blocks"] == ["stone"] * 5 and client.fake.world[(4, -60, 0)] == "stone"
     with pytest.raises(ValueError):
         client.set_blocks([])
+
+
+def test_get_entities_request_and_decoding(client):
+    zombie, item = client.get_entities(radius=16, types="zombie", visibility=True)
+    assert client.fake.requests[-1] == {"type": "entities", "radius": 16, "types": ["zombie"], "limit": 256,
+                                         "visibility": True}
+    assert isinstance(zombie, Entity) and zombie.is_hostile and zombie.health == 20.0
+    assert zombie.pos == (3.5, -60.0, 0.5) and zombie.line_of_sight is True and zombie.in_view is False
+    assert zombie.box == ((3.2, -60.0, 0.2), (3.8, -58.05, 0.8))
+    assert zombie.distance_to(0.5, -60, 0.5) == 3.0
+    assert item.item == "oak_log" and item.count == 3
+    assert item.health is None and item.line_of_sight is None and not item.is_hostile
+
+
+def test_get_entities_in_box(client):
+    client.get_entities_in((10.7, -60, 3), (-2, -55.5, 4.2), types=["minecraft:item", "cow"])
+    assert client.fake.requests[-1] == {"type": "entities", "min": [10, -60, 3], "max": [-2, -56, 4],
+                                         "types": ["minecraft:item", "cow"], "limit": 256, "visibility": False}
+
+
+def test_step_with_entities(client):
+    _, info = client.step(frame=True, entities=True)
+    assert client.fake.requests[-1]["entities"] == {}
+    assert [e.type for e in info["entities"]] == ["zombie", "item"]
+    _, info = client.step(entities={"radius": 8, "visibility": True})
+    assert client.fake.requests[-1]["entities"] == {"radius": 8, "visibility": True}
+    _, info = client.step()
+    assert "entities" not in client.fake.requests[-1] and "entities" not in info
+    with pytest.raises(ValueError, match="Unknown entity options"):
+        client.step(entities={"range": 8})

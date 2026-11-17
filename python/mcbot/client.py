@@ -11,6 +11,7 @@ from typing import Any, Callable, Iterable
 
 import numpy as np
 
+from .entities import Entity
 from .world import BlockVolume
 
 DEFAULT_HOST = "127.0.0.1"
@@ -20,6 +21,7 @@ TICKS_PER_SECOND = 20
 ACTION_KEYS = ("forward", "back", "left", "right", "jump", "sprint", "sneak", "attack", "use")
 FACES = ("up", "down", "north", "south", "east", "west")
 SET_BLOCKS_BATCH = 4096  # blocks per set_blocks request (the mod accepts requests up to 1 MB)
+ENTITY_QUERY_KEYS = ("radius", "min", "max", "types", "limit", "visibility")
 
 # Creative flight physics: every tick, horizontal speed is multiplied by 0.91 and vertical speed by 0.6.
 # Distance travelled before stopping if everything is released = speed × 1 / (1 - friction).
@@ -92,11 +94,14 @@ class MinecraftClient:
         return info
 
     def step(self, ticks: int = 1, frame: bool = False, yaw: float = 0.0, pitch: float = 0.0,
-             **keys: bool) -> tuple[np.ndarray | None, dict[str, Any]]:
+             entities: bool | dict[str, Any] = False, **keys: bool) -> tuple[np.ndarray | None, dict[str, Any]]:
         """Holds the ``keys`` for ``ticks`` ticks and turns the camera by ``yaw``/``pitch`` degrees.
 
         Possible keys: forward, back, left, right, jump, sprint, sneak, attack, use.
         ``yaw`` > 0 turns right, ``pitch`` > 0 looks down.
+        With ``entities`` (``True``, or a dict of ``get_entities`` options such as
+        ``{"radius": 16, "visibility": True}``), ``info["entities"]`` lists the entities as a list of ``Entity``;
+        with ``frame=True``, as the image shows them.
         """
         unknown = set(keys) - set(ACTION_KEYS)
         if unknown:
@@ -104,7 +109,13 @@ class MinecraftClient:
         action = {key: bool(keys.get(key, False)) for key in ACTION_KEYS}
         action["yaw"] = float(yaw)
         action["pitch"] = float(pitch)
-        return self._request({"type": "step", "ticks": int(ticks), "frame": frame, "action": action})
+        request: dict[str, Any] = {"type": "step", "ticks": int(ticks), "frame": frame, "action": action}
+        if entities:
+            request["entities"] = _entity_query({} if entities is True else entities)
+        image, info = self._request(request)
+        if "entities" in info:
+            info["entities"] = [Entity.from_json(entity) for entity in info["entities"]]
+        return image, info
 
     # --- Shortcuts -----------------------------------------------------------------------------
 
@@ -279,6 +290,28 @@ class MinecraftClient:
         ids, info = self._request({"type": "blocks", **box, "states": states})
         return BlockVolume(ids, info["palette"], tuple(info["origin"]))
 
+    def get_entities(self, radius: float = 32.0, types: Iterable[str] | None = None, limit: int = 256,
+                     visibility: bool = False) -> list[Entity]:
+        """Entities within ``radius`` blocks of the player's feet (max 256), nearest first, the player excluded.
+
+        ``types`` keeps only some types (``["zombie", "skeleton"]``); ``limit`` (max 4096) cuts the list.
+        With ``visibility=True``, each entity gets ``line_of_sight`` and ``in_view``, seen from the player's eyes.
+        Only the entities the server sends to the client are known (about 8 chunks around for mobs).
+        """
+        return self._entities(_entity_query({"radius": radius, "types": types, "limit": limit,
+                                              "visibility": visibility}))
+
+    def get_entities_in(self, corner1: tuple[float, float, float], corner2: tuple[float, float, float],
+                        types: Iterable[str] | None = None, limit: int = 256,
+                        visibility: bool = False) -> list[Entity]:
+        """Entities whose hitbox touches the box between two corner blocks (included), nearest first."""
+        return self._entities(_entity_query({"min": corner1, "max": corner2, "types": types, "limit": limit,
+                                              "visibility": visibility}))
+
+    def _entities(self, query: dict[str, Any]) -> list[Entity]:
+        info = self._request({"type": "entities", **query})[1]
+        return [Entity.from_json(entity) for entity in info["entities"]]
+
     # --- Transport -----------------------------------------------------------------------------
 
     def _request(self, message: dict[str, Any]) -> tuple[np.ndarray | None, dict[str, Any]]:
@@ -327,6 +360,20 @@ def connect_with_retry(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT, retry
         except OSError:
             log(f"  Minecraft (with the McBot mod) is not reachable, retrying in {retry_seconds:g} s...")
             time.sleep(retry_seconds)
+
+
+def _entity_query(options: dict[str, Any]) -> dict[str, Any]:
+    """Entity options as the mod expects them; ``None`` values are left out (the mod's defaults apply)."""
+    unknown = set(options) - set(ENTITY_QUERY_KEYS)
+    if unknown:
+        raise ValueError(f"Unknown entity options: {sorted(unknown)} (possible: {ENTITY_QUERY_KEYS})")
+    query = {key: value for key, value in options.items() if value is not None}
+    for corner in ("min", "max"):
+        if corner in query:
+            query[corner] = _block_pos(query[corner])
+    if "types" in query:
+        query["types"] = [query["types"]] if isinstance(query["types"], str) else list(query["types"])
+    return query
 
 
 def _block_pos(point: tuple[float, float, float]) -> list[int]:

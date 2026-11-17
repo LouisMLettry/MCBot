@@ -8,6 +8,8 @@ import com.mcbot.capture.FrameCapture;
 import com.mcbot.net.BotResponse;
 import com.mcbot.world.BlockScan;
 import com.mcbot.world.BlockWriter;
+import com.mcbot.world.EntityScan;
+import net.fabricmc.fabric.api.client.rendering.v1.WorldRenderContext;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.Options;
 import net.minecraft.client.gui.screens.PauseScreen;
@@ -15,15 +17,20 @@ import net.minecraft.client.player.LocalPlayer;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.util.Mth;
+import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.player.Abilities;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
+import org.joml.Matrix4f;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.function.BooleanSupplier;
@@ -44,6 +51,9 @@ import java.util.function.Supplier;
  *
  * <p>The {@code blocks} command returns the blocks of a box of the world (see {@link BlockScan}), read at the same tick
  * as the player's state.
+ *
+ * <p>The {@code entities} command lists the entities around the player (see {@link EntityScan}). A {@code step} can
+ * list them too: with a frame, they are listed as that frame shows them (see {@link #onWorldRendered}).
  */
 public class BotController {
 	private static final int MAX_TICKS_PER_STEP = 20 * 60;
@@ -93,6 +103,13 @@ public class BotController {
 	private BooleanSupplier waitCondition;
 	private Supplier<BotResponse> waitResponse;
 	private String waitTimeoutMessage;
+	/** Entities requested by the current step, and those listed when its last frame was rendered. */
+	private EntityScan.Query stepEntities;
+	private JsonArray frameEntities;
+	private long frameEntitiesRender;
+
+	private long renderCount;
+	private final Matrix4f lastProjection = new Matrix4f();
 
 	/** Called from the network thread: the command will be handled at the next game tick. */
 	public CompletableFuture<BotResponse> submit(JsonObject json) {
@@ -142,7 +159,31 @@ public class BotController {
 		player.setXRot(Mth.clamp(player.getXRot() + pitchPerTick, -90f, 90f));
 		ticksLeft--;
 		if (ticksLeft <= 0) {
-			finish(buildResponse(client, null));
+			finish(buildResponse(client, stepEntitiesResult(client)));
+		}
+	}
+
+	/**
+	 * Called after each rendered frame, on the game thread. The frame captured at the end of a step is the last one
+	 * rendered before its last tick ends, drawn between two ticks: during that tick, the entities are listed as this
+	 * frame shows them (same camera, field of view and positions), and kept for the response.
+	 */
+	public void onWorldRendered(WorldRenderContext context) {
+		renderCount++;
+		lastProjection.set(context.projectionMatrix());
+
+		LocalPlayer player = Minecraft.getInstance().player;
+		if (stepEntities == null || !captureFrame || ticksLeft != 1 || player == null) {
+			return;
+		}
+		try {
+			EntityScan.View view = EntityScan.View.ofFrame(context.camera(), context.positionMatrix(), context.projectionMatrix());
+			frameEntities = EntityScan.scan(context.world(), player, view, stepEntities);
+			frameEntitiesRender = renderCount;
+		} catch (RuntimeException e) {
+			// Never break rendering: the response falls back to the entities at the current tick.
+			McBotClient.LOGGER.warn("McBot: unable to list the entities of the frame", e);
+			frameEntities = null;
 		}
 	}
 
@@ -195,6 +236,11 @@ public class BotController {
 					BlockScan.Result scan = scanBlocks(client, json);
 					request.future().complete(new BotResponse(buildResponse(client, scan.info()).info(), scan.data()));
 				}
+				case "entities" -> {
+					JsonObject result = new JsonObject();
+					result.add("entities", scanEntities(client, entityQuery(json)));
+					request.future().complete(buildResponse(client, result));
+				}
 				default -> request.future().complete(BotResponse.error("Unknown request type: '" + type + "'"));
 			}
 		} catch (BotException e) {
@@ -211,15 +257,17 @@ public class BotController {
 		JsonObject json = request.json();
 		Action action = Action.fromJson(json.has("action") ? json.getAsJsonObject("action") : null);
 		int ticks = Mth.clamp(getInt(json, "ticks", 1), 0, MAX_TICKS_PER_STEP);
+		EntityScan.Query entities = json.has("entities") ? entityQuery(json.getAsJsonObject("entities")) : null;
 
 		applyKeys(client.options, action);
 		captureFrame = getBoolean(json, "frame", false);
+		stepEntities = entities;
 		current = request;
 
 		if (ticks == 0) {
 			player.setYRot(player.getYRot() + action.yaw());
 			player.setXRot(Mth.clamp(player.getXRot() + action.pitch(), -90f, 90f));
-			finish(buildResponse(client, null));
+			finish(buildResponse(client, stepEntitiesResult(client)));
 			return;
 		}
 
@@ -312,6 +360,55 @@ public class BotController {
 		return BlockScan.scan(client.level, getBlockPos(json, "min"), getBlockPos(json, "max"), states);
 	}
 
+	/**
+	 * Entities requested by an {@code entities} request or a step's {@code entities} object: within {@code radius} of
+	 * the player (default 32), or touching the box between the blocks {@code min} and {@code max} (included); only
+	 * the {@code types} given (all by default); at most {@code limit}, nearest first; {@code visibility} adds
+	 * {@code line_of_sight} and {@code in_view}.
+	 */
+	private static EntityScan.Query entityQuery(JsonObject json) {
+		AABB box = null;
+		if (json.has("min") || json.has("max")) {
+			box = AABB.encapsulatingFullBlocks(getBlockPos(json, "min"), getBlockPos(json, "max"));
+		}
+		double radius = json.has("radius") ? json.get("radius").getAsDouble() : EntityScan.DEFAULT_RADIUS;
+		if (!(radius >= 0 && radius <= EntityScan.MAX_RADIUS)) {
+			throw new BotException("Invalid radius: " + radius + " (0 to " + EntityScan.MAX_RADIUS + ")");
+		}
+		Set<EntityType<?>> types = new HashSet<>();
+		if (json.has("types") && !json.get("types").isJsonNull()) {
+			for (JsonElement type : json.getAsJsonArray("types")) {
+				types.add(EntityScan.parseType(type.getAsString()));
+			}
+		}
+		int limit = getInt(json, "limit", EntityScan.DEFAULT_LIMIT);
+		if (limit < 1 || limit > EntityScan.MAX_LIMIT) {
+			throw new BotException("Invalid limit: " + limit + " (1 to " + EntityScan.MAX_LIMIT + ")");
+		}
+		return new EntityScan.Query(radius, box, types, limit, getBoolean(json, "visibility", false));
+	}
+
+	/** Entities at the current tick, seen from the player's eyes. */
+	private JsonArray scanEntities(Minecraft client, EntityScan.Query query) {
+		LocalPlayer player = BuildActions.requirePlayer(client);
+		Matrix4f projection = renderCount > 0 ? lastProjection : client.gameRenderer.getProjectionMatrix(client.options.fov().get());
+		return EntityScan.scan(client.level, player, EntityScan.View.ofPlayer(player, projection), query);
+	}
+
+	/**
+	 * {@code entities} of a step response: those listed when the captured frame was rendered or, if there was none
+	 * (no frame requested, {@code ticks} = 0, game lagging), those at the current tick.
+	 */
+	private JsonObject stepEntitiesResult(Minecraft client) {
+		if (stepEntities == null) {
+			return null;
+		}
+		boolean fromFrame = captureFrame && frameEntities != null && frameEntitiesRender == renderCount;
+		JsonObject result = new JsonObject();
+		result.add("entities", fromFrame ? frameEntities : scanEntities(client, stepEntities));
+		return result;
+	}
+
 	/** The Python program has the focus: keep the game from pausing and close the Pause menu. */
 	private void prepareForControl(Minecraft client) {
 		if (savedPauseOnLostFocus == null) {
@@ -338,6 +435,8 @@ public class BotController {
 		BotRequest request = current;
 		current = null;
 		captureFrame = false;
+		stepEntities = null;
+		frameEntities = null;
 		waitCondition = null;
 		waitResponse = null;
 		waitTimeoutMessage = null;

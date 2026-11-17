@@ -20,12 +20,12 @@ The history behind each decision is in [doc/journal.md](doc/journal.md).
   connection while Minecraft isn't running, waiting for a world to be loaded, network timeouts.
   Their parameters say so (`retry_seconds`, `poll_seconds`, `timeout`).
 
-### Block and item names: no `minecraft:` prefix
+### Block, item and entity names: no `minecraft:` prefix
 
-- Names are Minecraft identifiers **without** the `minecraft:` namespace: `stone`, `oak_log`, and with states
-  `oak_log[axis=y]`.
-- Everything the mod returns uses this form (palettes, `held_item`, `block`, `item`). Inputs also accept the
-  prefixed form (`minecraft:stone`) for convenience.
+- Names are Minecraft identifiers **without** the `minecraft:` namespace: `stone`, `oak_log`, `zombie`, and with
+  states `oak_log[axis=y]`.
+- Everything the mod returns uses this form (palettes, `held_item`, `block`, `item`, entity `type`). Inputs also
+  accept the prefixed form (`minecraft:stone`) for convenience.
 - **This only works with vanilla Minecraft.** With other mods, two blocks could share a name in different
   namespaces (`minecraft:x` and `othermod:x`). Names from other namespaces keep their prefix, but this setup is
   not supported.
@@ -55,6 +55,9 @@ The history behind each decision is in [doc/journal.md](doc/journal.md).
 - Integers big-endian. Request: length + JSON. Response: length + JSON, then length + **one** binary block
   (possibly empty), whose content is named by the JSON field `payload` (`frame`, `blocks`).
 - **Every response includes the player's state**, read at the tick the command finished.
+- **What describes an image matches that image.** The image is the last frame drawn, between two ticks; data
+  returned with it to describe what it shows (today: a step's `entities`) is read while that frame is drawn, with
+  its camera. See [doc/architecture.md](doc/architecture.md#images-and-entities).
 - **Errors vs. results:**
   - an invalid request or an impossible situation (no world, unknown block, chunk not loaded…) is an **error**:
     `{"ok": false, "error": "..."}`, raised in Python as `McBotError`;

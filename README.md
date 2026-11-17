@@ -4,7 +4,8 @@ Drive your Minecraft character from Python, with images of the game, with a view
 
 - `mod/`: **Fabric mod for Minecraft 1.21.1** (client side). It opens a local TCP server (`127.0.0.1:5555`) that receives actions (move forward, turn, jump…) and sends back the player's state and, on request, an image of the game.
 - `python/`: Python client (`mcbot`) and, in `python/scripts/`, the demo scripts: `demo_movements.py`
-  (movement), `build_house.py` (building) and `scan_blocks.py` (reading the blocks around the player).
+  (movement), `build_house.py` (building), `scan_blocks.py` (reading the blocks around the player) and
+  `scan_entities.py` (listing the mobs and items around the player).
 - `doc/`: system documentation (architecture, journal, roadmap).
 - `guidelines.md`: conventions and decisions that apply to the whole project (units, block names, protocol…).
 
@@ -89,6 +90,10 @@ with MinecraftClient() as mc:            # 127.0.0.1:5555
 Keys available for `step`: `forward, back, left, right, jump, sprint, sneak, attack, use`, plus `yaw` (degrees, > 0 = right) and `pitch` (degrees, > 0 = down). All durations are in ticks: 20 ticks = 1 second
 (`TICKS_PER_SECOND`, see [guidelines.md](guidelines.md)).
 **Keys stay pressed until the next command** (useful to chain steps smoothly); `stop()` or disconnecting releases them.
+
+The image is the last frame the game drew, part-way between two ticks: the player's state in `info` can be up to one
+tick ahead of it. With `ticks=0`, the image comes from before the step and doesn't show its rotation. Details in
+[doc/python-api.md](doc/python-api.md#moving-and-looking).
 
 ## 4. Automatic building
 
@@ -186,6 +191,30 @@ with MinecraftClient() as mc:
 - The box is limited to the world's height and to 1,048,576 blocks (3 × 3 full chunks) per request.
 - Possible errors: chunk not loaded, box too large, box outside the world's height.
 
+### Entities (mobs, dropped items, players)
+```powershell
+cd python
+uv run python scripts/scan_entities.py --radius 32
+```
+Takes a picture (`frames/entities.png`) and lists the entities around the player, saying for each one whether it is
+in the picture's field of view and in line of sight.
+
+```python
+with MinecraftClient() as mc:
+    mobs = mc.get_entities(radius=32, types=["zombie", "skeleton"], visibility=True)
+    for e in mobs:                     # nearest first
+        print(e.type, e.pos, e.distance, e.health, e.in_view, e.line_of_sight)
+
+    # Entities as the returned image shows them (same tick, same camera)
+    image, info = mc.step(ticks=5, frame=True, forward=True, entities={"radius": 32, "visibility": True})
+    info["entities"]                   # list of Entity
+```
+- Only the entities the server sends to the game are known: up to about 8 chunks away for mobs, never beyond the
+  render distance.
+- `in_view`: the hitbox is in the camera's field of view. `line_of_sight`: nothing but see-through blocks (glass…)
+  between the camera and the entity. Both are needed for the entity to show in the image (unless it is
+  `invisible`).
+
 ## 6. Protocol (for reference)
 Big-endian integers, one request → one response:
 - request: `uint32 length` + UTF-8 JSON;
@@ -198,7 +227,7 @@ Big-endian integers, one request → one response:
 |---|---|---|
 | `ping` | — | Returns the state. |
 | `config` | `width`, `height`, `hide_gui` (optional) | Image size (16–1024 px); hide the interface like F1. |
-| `step` | `ticks`, `frame`, `action` {boolean keys, `yaw`, `pitch`} | Applies the action for `ticks` ticks, then responds. |
+| `step` | `ticks`, `frame`, `action` {boolean keys, `yaw`, `pitch`}, `entities` (optional, the options of `entities`) | Applies the action for `ticks` ticks, then responds. With `entities`: `entities` as for the `entities` command, as the frame shows them. |
 | `game_mode` | `mode` (`survival`, `creative`, `adventure`, `spectator`) | Changes the game mode (singleplayer world); responds once applied. |
 | `fly` | `enabled` | Starts/stops flying (creative). Flying is turned back on automatically if it stops in mid-air. |
 | `select_block` | `block`, `slot` (0–8, optional) | Puts the block in hand (created in creative, looked up in the hotbar otherwise). |
@@ -206,6 +235,7 @@ Big-endian integers, one request → one response:
 | `break_block` | `x`, `y`, `z`, `look` | Breaks the block (creative) → `broken`, `reason`, `block`. |
 | `set_blocks` | `blocks`: [[x, y, z, "state"], …] | Writes exact block states (singleplayer); answers once the client shows them → `blocks` (full states written). |
 | `blocks` | `min` and `max` [x, y, z], **or** `chunk` [cx, cz], **or** `radius`; `states` (default `false`) | Blocks of the box → `origin` [x, y, z], `shape` [sx, sy, sz], `palette`, and the indices in binary. |
+| `entities` | `radius` (default 32, max 256) **or** `min` and `max` [x, y, z]; `types` (list, default all); `limit` (default 256, max 4096); `visibility` (default `false`) | Entities around the player, nearest first → `entities`: [{`id`, `type`, `category`, `pos`, `motion`, `yaw`, `pitch`, `size` [w, h], `distance`, `invisible`, `name`, `health`, `max_health`, `baby`, `item`, `count`, `line_of_sight`, `in_view`}, …] (fields that don't apply are left out). |
 
 Response: `ok`, `error`, `tick`, `paused`, `screen`, `in_world`, `pos` [x, y, z], `motion` [vx, vy, vz] (blocks/tick), `yaw`, `pitch`, `on_ground`, `health`, `flying`, `may_fly`, `game_mode`, `reach`, `selected_slot`, `held_item`, `frame_width`, `frame_height`.
 

@@ -4,7 +4,7 @@ Reference for the `mcbot` package (`python/mcbot/`). Everything below can be imp
 
 ```python
 from mcbot import (MinecraftClient, connect_with_retry, McBotError, TICKS_PER_SECOND,
-                   Builder, Phase, Placement, BlockVolume)
+                   Builder, Phase, Placement, BlockVolume, Entity)
 ```
 
 | Class | File | Purpose |
@@ -12,6 +12,7 @@ from mcbot import (MinecraftClient, connect_with_retry, McBotError, TICKS_PER_SE
 | [`MinecraftClient`](#minecraftclient) | `client.py` | Connects to the mod and sends every command: move, look, build, read the world. |
 | [`Builder`, `Phase`, `Placement`](#builder) | `builder.py` | Builds a list of blocks automatically, flying from spot to spot. |
 | [`BlockVolume`](#blockvolume) | `world.py` | Blocks of a box of the world, as returned by `get_blocks` and friends. |
+| [`Entity`](#entity) | `entities.py` | One mob, dropped item or player, as returned by `get_entities` and `step`. |
 
 ## Conventions
 
@@ -23,8 +24,9 @@ These follow the project-wide rules in [guidelines.md](../guidelines.md).
   `(x, y, z)` is the cube from `(x, y, z)` to `(x+1, y+1, z+1)`; methods that take a block accept floats and round
   them down.
 - **Angles:** `yaw` > 0 turns right, `pitch` > 0 looks down (−90 = straight up, 90 = straight down).
-- **Block names:** Minecraft identifiers **without** the `minecraft:` prefix (`"stone"`, `"oak_log"`). Everything
-  returned uses this form; inputs also accept the prefix. Assumes Minecraft without other mods.
+- **Block, item and entity names:** Minecraft identifiers **without** the `minecraft:` prefix (`"stone"`,
+  `"oak_log"`, `"zombie"`). Everything returned uses this form; inputs also accept the prefix. Assumes Minecraft
+  without other mods.
 - **Errors:**
   - `McBotError`: the mod refused the command (no world loaded, unknown block, chunk not loaded…).
   - `ValueError`: invalid argument detected in Python before sending (unknown key, unknown face…).
@@ -71,7 +73,7 @@ Commands add their own keys (for example `placed` for `place_block`).
 ### Moving and looking
 
 ```python
-step(ticks=1, frame=False, yaw=0.0, pitch=0.0, **keys) -> (image, info)
+step(ticks=1, frame=False, yaw=0.0, pitch=0.0, entities=False, **keys) -> (image, info)
 ```
 
 Holds `keys` for `ticks` ticks (max 1200 = 1 minute) while turning the camera by `yaw` / `pitch` degrees, spread
@@ -82,6 +84,23 @@ evenly over the ticks. With `ticks=0` the rotation is instant.
   Call `stop()` to release everything; closing the connection does too.
 - **`image`:** with `frame=True`, a numpy array `(frame_height, frame_width, 3)` of `uint8` RGB, top row first,
   captured at the end of the step. Otherwise `None`.
+- **`entities`:** `True`, or a dict of [`get_entities`](#entities) options (`radius`, `min`/`max`, `types`, `limit`,
+  `visibility`). `info["entities"]` is then a list of [`Entity`](#entity). With `frame=True`, they are listed **as
+  the image shows them**: same camera, same field of view, positions at the moment the image was drawn (see
+  [Entities](#entities)).
+
+**When the image was taken.** The game runs a tick, then draws a frame, and the mod answers at the end of a tick. The
+image is therefore the **last frame drawn**, which shows the world part-way between the two previous ticks. Two
+consequences:
+
+- The player's state in `info` (`pos`, `yaw`, `pitch`, `motion`…) is read at the end of the step, **up to one tick
+  later** than the image. At walking speed that is under 0.3 blocks; while turning, up to one tick of rotation.
+- With **`ticks=0`**, no frame is drawn during the step, so the image is the one from **before** the step: it does
+  not show the rotation the step just applied. Use `ticks=1` or more when you need the image to show the result of
+  the action.
+
+Entities requested with the image (`entities=...`) are not affected by the first point: they are listed while the
+frame is drawn, so they match the image, not `info`.
 
 Shortcuts, all returning `(image, info)` and accepting `frame=True`:
 
@@ -180,6 +199,39 @@ read; a request covers at most 1,048,576 blocks (3 × 3 full chunks) and is cut 
 With `states=True`, the palette contains full block states such as `"oak_log[axis=x]"` instead of `"oak_log"`.
 
 Raises `McBotError` if a chunk isn't loaded, the box is too big, or it lies entirely above or below the world.
+
+### Entities
+
+Both methods return a list of [`Entity`](#entity), nearest first, without the player itself.
+
+| Method | Entities |
+|---|---|
+| `get_entities(radius=32.0, types=None, limit=256, visibility=False)` | Within `radius` blocks of the player's feet (max 256). |
+| `get_entities_in(corner1, corner2, types=None, limit=256, visibility=False)` | Whose hitbox touches the box between two corner blocks (included). |
+
+- `types`: only these types, e.g. `["zombie", "skeleton"]` (a single name works too). Default: every type.
+- `limit`: at most this many entities (max 4096), the nearest ones.
+- Only the entities the server sends to the game are known: about 8 chunks around for mobs, 6 for dropped items,
+  never beyond the render distance. An empty list is not an error.
+- `visibility=True` adds two flags to each entity. To show in an image, an entity needs both (and not
+  `invisible`):
+  - **`in_view`**: its hitbox is inside the camera's field of view. The test is slightly generous: a hitbox just
+    outside a corner of the image can count as in view.
+  - **`line_of_sight`**: a straight line from the camera reaches the bottom, middle or top of its hitbox without
+    crossing a block. Blocks count by what you see: glass doesn't block, leaves do. Water and lava don't block.
+- **Seen from where:** `get_entities` uses the player's eyes at the current tick. `step(frame=True,
+  entities=...)` uses the camera of the image itself, so the flags match the picture (third-person view included).
+  The image is drawn between two ticks, so the entities' `pos` can differ slightly from where they are at the
+  tick of `info`. With `ticks=0`, or if the game lags, no image is drawn during the step; the entities are then
+  those of the current tick.
+
+```python
+mobs = mc.get_entities(radius=24, types=["zombie", "creeper"], visibility=True)
+seen = [e for e in mobs if e.in_view and e.line_of_sight and not e.invisible]
+
+image, info = mc.step(ticks=2, frame=True, forward=True, entities={"visibility": True})
+hostile = [e for e in info["entities"] if e.is_hostile]
+```
 
 ---
 
@@ -299,3 +351,35 @@ layer = chunk.ids[:, -60 - chunk.origin[1], :]   # shape (16, 16), indexed [x, z
 ```
 
 `scripts/scan_blocks.py` is a complete example (top-down map of the area around the player).
+
+---
+
+## Entity
+
+```python
+Entity(id, type, category, pos, motion, yaw, pitch, size, distance, invisible, ...)   # frozen dataclass
+```
+
+Normally created by `get_entities`, `get_entities_in` and `step(entities=...)`. Fields that don't apply are
+`None`.
+
+| Attribute / method | Description |
+|---|---|
+| `id` | Number of the entity in the game. Stays the same as long as the entity exists: use it to follow one entity across requests. |
+| `type` | `"zombie"`, `"cow"`, `"item"` (dropped item), `"player"`, `"arrow"`… |
+| `category` | Minecraft's group: `"monster"`, `"creature"` (passive animals), `"ambient"` (bats), `"water_creature"`, `"water_ambient"`, `"underground_water_creature"`, `"axolotls"`, `"misc"` (items, arrows, players…). |
+| `pos` | Feet position `(x, y, z)`, like the player's `pos`. |
+| `motion` | Movement during the last tick, in blocks. |
+| `yaw`, `pitch` | Where it faces, in degrees (same convention as the player). |
+| `size` | Hitbox `(width, height)`. |
+| `distance` | From the player's feet to the entity's feet. |
+| `invisible` | Under an invisibility effect: not drawn in images even when in view. |
+| `name` | Custom name (name tag), or a player's name. Otherwise `None`. |
+| `health`, `max_health`, `baby` | Living entities only (mobs, players). |
+| `item`, `count` | Dropped items only: `"oak_log"`, `3`. |
+| `line_of_sight`, `in_view` | Only with `visibility=True`. See [Entities](#entities). |
+| `is_hostile` | `True` for the `"monster"` category. |
+| `box` | Hitbox as its lowest and highest corners `((x1, y1, z1), (x2, y2, z2))`. |
+| `distance_to(x, y, z)` | Distance from the entity's feet to a point. |
+
+`scripts/scan_entities.py` is a complete example (takes a picture and lists the entities with their flags).

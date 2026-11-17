@@ -80,6 +80,8 @@ class FakeMod:
             info.update(payload="blocks", origin=request.get("min", [0, -64, 0]), shape=[2, 3, 2],
                         palette=["air", "stone", "oak_log[axis=y]"])
             return info, (np.arange(12) % 3).astype(">u2").tobytes()
+        if request["type"] == "entities" or request.get("entities") is not None:
+            info.update(entities=ENTITIES)
         if request.get("frame"):
             return info, bytes(range(4 * 2 * 3))
         return info, b""
@@ -102,6 +104,17 @@ class FakeMod:
         if existing is None:
             return {"broken": False, "target": list(pos), "reason": "empty", "message": "There is no block here"}
         return {"broken": True, "target": list(pos), "block": existing}
+
+
+# What the fake mod answers to an `entities` request: a zombie and a dropped item, nearest first.
+ENTITIES = [
+    {"id": 12, "type": "zombie", "category": "monster", "pos": [3.5, -60.0, 0.5], "motion": [0.1, 0.0, 0.0],
+     "yaw": 90.0, "pitch": 0.0, "size": [0.6, 1.95], "distance": 3.0, "invisible": False,
+     "health": 20.0, "max_health": 20.0, "baby": False, "line_of_sight": True, "in_view": False},
+    {"id": 40, "type": "item", "category": "misc", "pos": [0.5, -60.0, 8.5], "motion": [0.0, 0.0, 0.0],
+     "yaw": 0.0, "pitch": 0.0, "size": [0.25, 0.25], "distance": 8.0, "invisible": False,
+     "item": "oak_log", "count": 3},
+]
 
 
 class FlightPhysics:

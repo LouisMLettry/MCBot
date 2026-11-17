@@ -137,3 +137,27 @@ The project was started by Florian Desmons on Windows.
   - the response comes once the game client shows the blocks, so a `get_blocks` right after is consistent.
 - The controller's waiting logic (used by `game_mode`) was generalised for this.
 - Checked: the mod compiles, 28 Python tests pass. **Not yet tested in the game.**
+
+## 2026-11-02 — Reading entities
+
+- New mod command `entities` and Python methods `get_entities(radius, types, limit, visibility)` /
+  `get_entities_in(corner1, corner2, ...)`, returning a list of `Entity` (new `mcbot/entities.py`): mobs, dropped
+  items and other players, nearest first, with type, category, position, movement, rotation, hitbox size, health,
+  item, name…
+- `step(..., entities=True | {options})` returns them in `info["entities"]`, **synchronised with the image**: the
+  image is the last frame drawn, between two ticks, so the entities are listed while that frame is drawn (Fabric
+  `WorldRenderEvents.END`, during the step's last tick) with its camera, projection and partial tick. Recorded as a
+  rule in guidelines.md.
+- Decisions:
+  - **Client side only.** The client knows what the server sends: entities within their tracking range (about 8
+    chunks for mobs), not their AI target or saved data. Reading through the singleplayer server is left for later.
+  - Two flags rather than one `visible`: `in_view` (hitbox inside the camera frustum) and `line_of_sight` (a ray from
+    the camera to the bottom, middle or top of the hitbox, through the blocks' **visual** shapes, so glass doesn't
+    block; fluids ignored). Opt-in with `visibility`; cheap (a few microseconds per entity).
+  - JSON only, no binary payload: even hundreds of entities are small.
+  - `motion` is the movement during the last tick: the client's own velocity of other entities is often stale.
+- New demo `scripts/scan_entities.py` (picture + table of entities and flags).
+- Documented when the image of a `step` is taken (README, python-api.md): it can be up to one tick older than the
+  player's state in `info`, and with `ticks=0` it comes from before the step. Not changed: making the image match
+  `info` exactly would need waiting for an extra frame at the end of each step.
+- Checked: the mod compiles, 31 Python tests pass. **Not yet tested in the game.**
